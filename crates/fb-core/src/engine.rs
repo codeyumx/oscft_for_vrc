@@ -11,15 +11,17 @@ use crate::types::{
     EngineEvent, EngineSnapshot, LogEntry, ModuleRunState, ModuleSettingsView, ModuleView,
 };
 use anyhow::{Context, Result, anyhow, bail};
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
+use fb_mutate::{CalibrationData, MutationConfig, Mutator};
 use fb_osc::{Claims, OscConfig, OscEvent, OscOutput, OscStatus};
-use fb_tracking::TrackingFrame;
+use fb_tracking::{Expression, TrackingFrame};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 pub type ModuleId = String;
@@ -61,6 +63,9 @@ pub(crate) struct ModuleRt {
     pub meta: ModuleMeta,
     pub state: ModuleRunState,
     pub supports: Claims,
+    /// `supports` was reported by the module host at least once (it is kept across restarts), so it can be
+    /// relied on to decide whether the module could take over a part.
+    pub supports_known: bool,
     pub claims: Claims,
     pub status: Option<i8>,
     pub last_error: Option<String>,
@@ -81,6 +86,7 @@ impl ModuleRt {
             meta: ModuleMeta::default(),
             state: ModuleRunState::Stopped,
             supports: Claims::default(),
+            supports_known: false,
             claims: Claims::default(),
             status: None,
             last_error: None,
@@ -151,6 +157,14 @@ pub(crate) struct Inner {
     pub events: Arc<Events>,
     pub state: Mutex<State>,
     pub merger: Mutex<Merger>,
+    /// Calibration, correctors, adjustment and filter. Lock order: merger, then mutator.
+    pub mutator: Mutex<Mutator>,
+    /// What was last sent to OSC (the mutated frame).
+    pub last_output: Mutex<(TrackingFrame, Claims)>,
+    /// Monotonic clock for the mutator.
+    clock: Instant,
+    pub calibration_saver: Mutex<CalibrationSaver>,
+    saver_thread: Mutex<Option<(Sender<()>, JoinHandle<()>)>>,
     pub osc: RwLock<Option<OscOutput>>,
     /// Held while one module goes through spawn → Init so claim offers never race.
     pub startup: Mutex<()>,
@@ -187,10 +201,61 @@ impl Inner {
         self.emit(EngineEvent::Log(entry));
     }
 
-    /// Submits the merged frame to OSC. Callers hold the merger lock so submissions stay ordered.
+    /// Runs the merged frame through the mutator and submits the result to OSC. Callers hold the merger lock so
+    /// submissions stay ordered (lock order: merger, then mutator).
     pub fn submit(&self, frame: &TrackingFrame, claims: Claims) {
+        let mut out = *frame;
+        lock(&self.mutator).apply(&mut out, self.clock.elapsed().as_secs_f64());
+        *lock(&self.last_output) = (out, claims);
         if let Some(osc) = self.osc.read().unwrap_or_else(|e| e.into_inner()).as_ref() {
-            osc.submit(frame, claims);
+            osc.submit(&out, claims);
+        }
+    }
+
+    /// Runs the current merged frame through the (possibly changed) mutator again so the output follows a
+    /// settings change even while no module sends frames.
+    pub fn resubmit(&self) {
+        if self.offline || self.shutting_down.load(Ordering::SeqCst) {
+            return;
+        }
+        let merger = lock(&self.merger);
+        let (frame, claims) = merger.merged();
+        self.submit(&frame, claims);
+    }
+
+    /// Drops all claims and frame data, including the output frame.
+    pub fn clear_merger(&self) {
+        let mut merger = lock(&self.merger);
+        merger.clear();
+        *lock(&self.last_output) = (TrackingFrame::default(), Claims::default());
+    }
+
+    /// Writes the calibration data when it changed since the last write: at most every
+    /// [`CALIBRATION_SAVE_INTERVAL`], or right away with `force`. The file is written without holding the merger
+    /// or mutator lock.
+    pub fn flush_calibration(&self, force: bool) -> Result<()> {
+        let mut saver = lock(&self.calibration_saver);
+        let data = {
+            let mut mutator = lock(&self.mutator);
+            if mutator.take_calibration_dirty() {
+                saver.unsaved = true;
+            }
+            if !saver.unsaved || (!force && saver.last_save.elapsed() < CALIBRATION_SAVE_INTERVAL) {
+                return Ok(());
+            }
+            mutator.calibration().clone()
+        };
+        saver.last_save = Instant::now();
+        write_json_atomic(&self.paths.calibration_path(), &data).context("saving calibration")?;
+        saver.unsaved = false;
+        Ok(())
+    }
+
+    /// Stops the calibration saver thread (idempotent).
+    pub fn stop_calibration_saver(&self) {
+        if let Some((stop, handle)) = lock(&self.saver_thread).take() {
+            drop(stop);
+            let _ = handle.join();
         }
     }
 
@@ -236,6 +301,47 @@ impl Inner {
     }
 }
 
+/// Calibration is written at most this often while it keeps changing.
+const CALIBRATION_SAVE_INTERVAL: Duration = Duration::from_secs(10);
+/// How often the saver thread looks at the calibration state.
+const CALIBRATION_SAVE_POLL: Duration = Duration::from_secs(1);
+
+/// Persistence bookkeeping of the calibration data.
+pub(crate) struct CalibrationSaver {
+    /// Changed since the last successful write.
+    unsaved: bool,
+    last_save: Instant,
+}
+
+/// Missing or corrupt `calibration.json` means empty data; a corrupt file also returns a message to log.
+fn load_calibration(path: &Path) -> (CalibrationData, Option<String>) {
+    match std::fs::read_to_string(path) {
+        Ok(text) => match serde_json::from_str(&text) {
+            Ok(data) => (data, None),
+            Err(e) => (CalibrationData::default(), Some(format!("Ignoring corrupt {}: {e}", path.display()))),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (CalibrationData::default(), None),
+        Err(e) => (CalibrationData::default(), Some(format!("Could not read {}: {e}", path.display()))),
+    }
+}
+
+/// Starts the thread that writes changed calibration data to disk; [`Inner::stop_calibration_saver`] ends it.
+fn spawn_calibration_saver(inner: &Arc<Inner>) {
+    let (stop_tx, stop_rx) = crossbeam_channel::bounded::<()>(0);
+    let worker = Arc::clone(inner);
+    let spawned = std::thread::Builder::new().name("fb-calibration-saver".into()).spawn(move || {
+        while let Err(RecvTimeoutError::Timeout) = stop_rx.recv_timeout(CALIBRATION_SAVE_POLL) {
+            if let Err(e) = worker.flush_calibration(false) {
+                worker.log(None, "error", "engine", format!("{e:#}"));
+            }
+        }
+    });
+    match spawned {
+        Ok(handle) => *lock(&inner.saver_thread) = Some((stop_tx, handle)),
+        Err(e) => inner.log(None, "error", "engine", format!("Calibration will not be saved while running: {e}")),
+    }
+}
+
 /// Module ids become directory names, so they must be canonical lower-case hyphenated UUIDs.
 fn valid_module_id(id: &str) -> bool {
     Uuid::parse_str(id).is_ok_and(|u| u.hyphenated().to_string() == id)
@@ -272,7 +378,9 @@ impl Engine {
         let data_dir = std::path::absolute(&data_dir).unwrap_or(data_dir);
         std::fs::create_dir_all(&data_dir).with_context(|| format!("creating {}", data_dir.display()))?;
         let mut config = load_config(&data_dir)?;
+        config.mutation.sanitize();
         let paths = Paths::new(data_dir);
+        let (calibration, calibration_warning) = load_calibration(&paths.calibration_path());
 
         let mut seen = std::collections::HashSet::new();
         config.modules.retain(|m| valid_module_id(&m.id) && seen.insert(m.id.clone()));
@@ -289,15 +397,24 @@ impl Engine {
                 generation: 0,
             }),
             merger: Mutex::new(Merger::default()),
+            mutator: Mutex::new(Mutator::new(config.mutation.clone(), calibration)),
+            last_output: Mutex::new((TrackingFrame::default(), Claims::default())),
+            clock: Instant::now(),
+            calibration_saver: Mutex::new(CalibrationSaver { unsaved: false, last_save: Instant::now() }),
+            saver_thread: Mutex::new(None),
             osc: RwLock::new(None),
             startup: Mutex::new(()),
             shutting_down: AtomicBool::new(false),
             next_run: AtomicU64::new(0),
             offline,
         });
+        if let Some(warning) = calibration_warning {
+            inner.log(None, "warning", "engine", warning);
+        }
         if !offline {
             let osc = inner.start_osc(config.osc.clone()).context("starting OSC output")?;
             *inner.osc.write().unwrap_or_else(|e| e.into_inner()) = Some(osc);
+            spawn_calibration_saver(&inner);
         }
 
         let engine = Arc::new(Engine { inner });
@@ -364,8 +481,13 @@ impl Engine {
         EngineSnapshot { modules, notifications, avatar, osc, osc_config, logs }
     }
 
-    /// The current merged frame and which parts are claimed.
+    /// The current output frame (what goes to OSC: the merged frame after mutation) and which parts are claimed.
     pub fn latest_frame(&self) -> (TrackingFrame, Claims) {
+        *lock(&self.inner.last_output)
+    }
+
+    /// The merged frame before calibration, correctors, adjustment and filtering.
+    pub fn latest_raw_frame(&self) -> (TrackingFrame, Claims) {
         lock(&self.inner.merger).merged()
     }
 
@@ -525,7 +647,7 @@ impl Engine {
         let inner = &self.inner;
         let (generation, ctls) = run::bump_generation(inner);
         run::stop_many(&ctls);
-        lock(&inner.merger).clear();
+        inner.clear_merger();
         inner.emit(EngineEvent::ModulesChanged);
         if !inner.shutting_down.load(Ordering::SeqCst) {
             run::spawn_start_sequence(inner, generation);
@@ -556,7 +678,12 @@ impl Engine {
         let cleared = {
             let mut st = lock(&inner.state);
             let entry = st.config.modules.iter_mut().find(|m| m.id == id).with_context(|| format!("no such module: {id}"))?;
-            entry.options = options;
+            entry.options = ModuleOptions {
+                data_timeout_secs: options
+                    .data_timeout_secs
+                    .clamp(ModuleOptions::MIN_DATA_TIMEOUT_SECS, ModuleOptions::MAX_DATA_TIMEOUT_SECS),
+                ..options
+            };
             save_config(&inner.paths.data_dir, &st.config)?;
             !options.allow_notifications && st.notifications.clear_module(id)
         };
@@ -637,6 +764,52 @@ impl Engine {
         Ok(())
     }
 
+    /// The current mutation settings (sanitized).
+    pub fn mutation_config(&self) -> MutationConfig {
+        lock(&self.inner.state).config.mutation.clone()
+    }
+
+    /// Sanitizes `cfg`, applies it to the running frames, persists it in `config.json`, announces
+    /// [`EngineEvent::MutationChanged`] and returns the sanitized config. In offline mode it is only stored.
+    pub fn set_mutation_config(&self, cfg: MutationConfig) -> Result<MutationConfig> {
+        let inner = &self.inner;
+        if inner.shutting_down.load(Ordering::SeqCst) {
+            bail!("the engine is shut down");
+        }
+        let cfg = cfg.sanitized();
+        {
+            let mut st = lock(&inner.state);
+            let previous = std::mem::replace(&mut st.config.mutation, cfg.clone());
+            if let Err(e) = save_config(&inner.paths.data_dir, &st.config) {
+                st.config.mutation = previous;
+                return Err(e);
+            }
+            lock(&inner.mutator).set_config(cfg.clone());
+        }
+        inner.resubmit();
+        inner.emit(EngineEvent::MutationChanged);
+        Ok(cfg)
+    }
+
+    /// The learned calibration of every shape.
+    pub fn calibration(&self) -> CalibrationData {
+        lock(&self.inner.mutator).calibration().clone()
+    }
+
+    /// Forgets the learned calibration of the shape named `shape` (an `Expression` name such as `"JawOpen"`), or
+    /// of every shape for `None`, and persists the result. An unknown name is an error.
+    pub fn reset_calibration(&self, shape: Option<&str>) -> Result<()> {
+        let inner = &self.inner;
+        let expression = shape
+            .map(|name| Expression::from_name(name).with_context(|| format!("unknown shape: {name}")))
+            .transpose()?;
+        lock(&inner.mutator).reset_calibration(expression);
+        inner.resubmit();
+        inner.flush_calibration(true)?;
+        inner.emit(EngineEvent::MutationChanged);
+        Ok(())
+    }
+
     /// Tears down all modules (Teardown, 5 s, then kill) and stops OSC. Idempotent.
     pub fn shutdown(&self) {
         let inner = &self.inner;
@@ -645,8 +818,12 @@ impl Engine {
         }
         let (_, ctls) = run::bump_generation(inner);
         run::stop_many(&ctls);
-        lock(&inner.merger).clear();
+        inner.clear_merger();
         drop(inner.osc.write().unwrap_or_else(|e| e.into_inner()).take());
+        inner.stop_calibration_saver();
+        if let Err(e) = inner.flush_calibration(true) {
+            inner.log(None, "error", "engine", format!("{e:#}"));
+        }
     }
 }
 

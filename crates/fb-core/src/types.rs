@@ -12,6 +12,9 @@ pub enum ModuleRunState {
     Initializing,
     Running,
     Unclaimed,
+    /// Claimed something but sent no live data within the startup check, so its claims were handed on and it was
+    /// torn down (serialized as `nodata`).
+    NoData,
     Failed,
     Exited,
 }
@@ -91,4 +94,6 @@ pub enum EngineEvent {
     Log(LogEntry),
     AvatarChanged,
     OscStatusChanged,
+    /// The mutation config changed, or calibration data was reset.
+    MutationChanged,
 }

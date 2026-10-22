@@ -171,6 +171,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .field .error { grid-column: 2; color: var(--danger); font-size: 12.5px; }
 .field .control { display: flex; align-items: center; gap: 10px; }
 .field .control input[type="number"] { width: 110px; flex: none; }
+.field .control input.option-seconds { width: 70px; }
 .field .control input[type="text"] { flex: 1; }
 .field .control select { min-width: 200px; }
 .form-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -283,3 +284,16 @@ details.settings[open] > summary { margin-bottom: 8px; }
 .toast.error, .toast.critical { border-left-color: var(--danger); }
 .toast.warning { border-left-color: var(--warn); }
 .toast.ok { border-left-color: var(--ok); }
+
+/* Tracking page */
+.trk-stack { display: flex; flex-direction: column; gap: 8px; margin: 8px 0; }
+.trk-readout { min-width: 64px; text-align: right; flex: none; }
+.trk-row { display: grid; grid-template-columns: minmax(130px, 200px) 1fr auto; gap: 10px; align-items: center; padding: 4px 0; }
+.trk-row.inactive { opacity: 0.55; }
+.trk-row .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trk-row.adjust { grid-template-columns: minmax(130px, 200px) 1fr 1fr auto; }
+.trk-row.filter { grid-template-columns: minmax(130px, 200px) 1fr 1fr 1fr; }
+.trk-row:not(.adjust):not(.filter) { grid-template-columns: minmax(130px, 220px) 90px 1fr auto; }
+.trk-lbl { display: flex; flex-direction: column; gap: 2px; }
+.trk-shape-list { max-height: 360px; overflow: auto; }
+.live-source { display: inline-flex; align-items: center; gap: 6px; }

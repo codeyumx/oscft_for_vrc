@@ -86,6 +86,27 @@ impl Merger {
         Some(self.merged())
     }
 
+    /// Drops `key`'s claim on the given parts only. When that leaves `key` with no claim at all, its slot (and
+    /// last frame) goes too. Returns the new merged frame if `key` held any of those parts.
+    pub fn release_parts(&mut self, key: RunKey, parts: Claims) -> Option<(TrackingFrame, Claims)> {
+        let mut changed = false;
+        if parts.eye && self.eye_owner == Some(key) {
+            self.eye_owner = None;
+            changed = true;
+        }
+        if parts.expression && self.expression_owner == Some(key) {
+            self.expression_owner = None;
+            changed = true;
+        }
+        if !changed {
+            return None;
+        }
+        if self.eye_owner != Some(key) && self.expression_owner != Some(key) {
+            self.slots.retain(|s| s.key != key);
+        }
+        Some(self.merged())
+    }
+
     /// Releases everything.
     pub fn clear(&mut self) {
         *self = Self::default();
@@ -111,6 +132,35 @@ impl Merger {
             out.head = s.frame.head;
         }
         (out, Claims { eye: self.eye_owner.is_some(), expression: self.expression_owner.is_some() })
+    }
+}
+
+/// Startup data check of one module: which of the watched parts has shown changing data, i.e. two frames that
+/// differ in a field of that part. The eye part is the eye fields plus the eye-region shapes (`EyeSquint*`,
+/// `EyeWide*`), the expression part is every other shape; head data does not count.
+pub struct LiveCheck {
+    watch: Claims,
+    live: Claims,
+    last: Option<TrackingFrame>,
+}
+
+impl LiveCheck {
+    pub fn new(watch: Claims) -> Self {
+        Self { watch, live: Claims::default(), last: None }
+    }
+
+    /// Compares `frame` with the previous one.
+    pub fn feed(&mut self, frame: &TrackingFrame) {
+        if let Some(prev) = &self.last {
+            self.live.eye |= self.watch.eye && (prev.eye != frame.eye || prev.shapes[..EYE_SHAPES] != frame.shapes[..EYE_SHAPES]);
+            self.live.expression |= self.watch.expression && prev.shapes[EYE_SHAPES..] != frame.shapes[EYE_SHAPES..];
+        }
+        self.last = Some(*frame);
+    }
+
+    /// Watched parts that have not shown live data yet.
+    pub fn pending(&self) -> Claims {
+        Claims { eye: self.watch.eye && !self.live.eye, expression: self.watch.expression && !self.live.expression }
     }
 }
 
@@ -276,5 +326,62 @@ mod tests {
         let (merged, claims) = m.release(2).unwrap();
         assert_eq!(claims, NONE);
         assert_eq!(merged, TrackingFrame::default());
+    }
+
+    #[test]
+    fn releasing_one_part_keeps_the_other_and_the_slot_until_nothing_is_left() {
+        let mut m = Merger::default();
+        m.claim(1, BOTH, BOTH);
+        let mut f = expr_frame(0.4);
+        f.eye.left.gaze_x = 0.3;
+        m.update(1, FrameFlags::EYE | FrameFlags::EXPRESSION, &f);
+        let (merged, claims) = m.release_parts(1, EYE).unwrap();
+        assert_eq!(claims, EXPR);
+        assert_eq!(merged.eye.left.gaze_x, 0.0);
+        assert_eq!(merged.shape(Expression::JawOpen), 0.4, "the kept part still flows");
+        assert_eq!(m.unclaimed(), EYE);
+        assert!(m.release_parts(1, EYE).is_none(), "already released");
+        assert!(m.release_parts(2, EXPR).is_none(), "not the owner");
+        assert!(m.update(1, FrameFlags::EXPRESSION, &f).is_some(), "frames for the kept part are still accepted");
+        let (merged, claims) = m.release_parts(1, EXPR).unwrap();
+        assert_eq!((claims, merged), (NONE, TrackingFrame::default()));
+        assert!(m.update(1, FrameFlags::EXPRESSION, &f).is_none(), "no claim left, no slot");
+        assert_eq!(m.claim(2, BOTH, BOTH), BOTH);
+    }
+
+    #[test]
+    fn live_check_needs_two_differing_frames_per_part_and_ignores_head() {
+        let mut c = LiveCheck::new(BOTH);
+        assert_eq!(c.pending(), BOTH);
+        c.feed(&eye_frame(0.3));
+        assert_eq!(c.pending(), BOTH, "one frame proves nothing");
+        c.feed(&eye_frame(0.3));
+        assert_eq!(c.pending(), BOTH, "identical frames");
+        let mut moved_head = eye_frame(0.3);
+        moved_head.head.yaw = 50.0;
+        c.feed(&moved_head);
+        assert_eq!(c.pending(), BOTH, "head data does not count");
+        c.feed(&eye_frame(0.4));
+        assert_eq!(c.pending(), EXPR, "eye gaze changed");
+        let mut f = eye_frame(0.4);
+        f.set_shape(Expression::JawOpen, 0.1);
+        c.feed(&f);
+        assert_eq!(c.pending(), NONE);
+    }
+
+    #[test]
+    fn live_check_assigns_eye_region_shapes_to_the_eye_and_ignores_unwatched_parts() {
+        let mut c = LiveCheck::new(BOTH);
+        let mut a = TrackingFrame::default();
+        let mut b = a;
+        b.set_shape(Expression::EyeWideLeft, 0.5);
+        c.feed(&a);
+        c.feed(&b);
+        assert_eq!(c.pending(), EXPR, "EyeWide* belongs to the eye part");
+        a.set_shape(Expression::JawOpen, 0.2);
+        let mut only_eye = LiveCheck::new(EYE);
+        only_eye.feed(&TrackingFrame::default());
+        only_eye.feed(&a);
+        assert_eq!(only_eye.pending(), EYE, "expression changes do not make the eye live");
     }
 }

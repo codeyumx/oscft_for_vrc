@@ -4,7 +4,7 @@
 
 /** @typedef {{ eye: boolean, expression: boolean }} Claims */
 
-/** @typedef {'stopped'|'starting'|'initializing'|'running'|'unclaimed'|'failed'|'exited'} ModuleRunState */
+/** @typedef {'stopped'|'starting'|'initializing'|'running'|'unclaimed'|'nodata'|'failed'|'exited'} ModuleRunState */
 
 /**
  * @typedef {object} ModuleView
@@ -28,7 +28,7 @@
  * @property {number} imageCount
  */
 
-/** @typedef {{ allowNotifications: boolean }} ModuleOptions */
+/** @typedef {{ allowNotifications: boolean, requireData: boolean, dataTimeoutSecs: number }} ModuleOptions */
 
 /**
  * @typedef {object} NotificationView
@@ -144,6 +144,22 @@
 
 /** @typedef {{ schema: { fields: SettingsField[] }, values: Record<string, any> }} ModuleSettingsView */
 
-/** @typedef {{ kind: 'modulesChanged'|'notificationsChanged'|'avatarChanged'|'oscStatusChanged' } | { kind: 'log', entry: LogEntry }} EngineEvent */
+/** @typedef {{ kind: 'modulesChanged'|'notificationsChanged'|'avatarChanged'|'oscStatusChanged'|'mutationChanged' } | { kind: 'log', entry: LogEntry }} EngineEvent */
+
+/** @typedef {{ enabled: boolean, minCutoff: number, beta: number, derivativeCutoff: number }} FilterChannel */
+/** @typedef {{ min: number, max: number }} AdjustRange */
+
+/**
+ * @typedef {object} MutationConfig  see spec/mutation.md
+ * @property {boolean} enabled
+ * @property {{ enabled: boolean, blend: number, continuous: boolean }} calibration
+ * @property {{ enabled: boolean, mouthClosedFix: boolean, lipSuckFix: boolean, eyeLidBlend: number, eyeLookSymmetrize: boolean }} correctors
+ * @property {{ enabled: boolean, ranges: Record<string, AdjustRange> }} adjustment  missing groups mean 0..1
+ * @property {{ enabled: boolean, eyeGaze: FilterChannel, eyeOpenness: FilterChannel, pupil: FilterChannel, expressions: FilterChannel, head: FilterChannel }} filter
+ */
+
+/** @typedef {{ shapes: { name: string, peak: number, progress: number }[] }} CalibrationData */
+
+/** @typedef {{ key: string, label: string, isHead: boolean }} AdjustGroupInfo */
 
 export {};

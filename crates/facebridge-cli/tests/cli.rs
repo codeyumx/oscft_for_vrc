@@ -121,6 +121,56 @@ fn settings_roundtrip_from_a_cached_schema() {
 }
 
 #[test]
+fn mutation_settings_merge_persist_and_are_sanitized() {
+    let cli = Cli::new();
+    let shown: serde_json::Value = serde_json::from_str(&cli.ok(&["mutation", "show"])).unwrap();
+    assert_eq!(shown["filter"]["enabled"], false);
+
+    let set: serde_json::Value = serde_json::from_str(
+        &cli.ok(&["mutation", "set", r#"{"filter":{"enabled":true,"head":{"minCutoff":99}},"calibration":{"blend":0.5}}"#]),
+    )
+    .unwrap();
+    assert_eq!(set["filter"]["enabled"], true);
+    assert_eq!(set["filter"]["head"]["minCutoff"], 30.0, "sanitized");
+    assert_eq!(set["filter"]["head"]["beta"], 0.05, "merged onto the current values, not replaced");
+
+    // A second partial set keeps the first, and everything survives in a new process and in config.json.
+    cli.ok(&["mutation", "set", r#"{"adjustment":{"ranges":{"jawOpen":{"min":0.25}}}}"#]);
+    let shown: serde_json::Value = serde_json::from_str(&cli.ok(&["mutation", "show"])).unwrap();
+    assert_eq!(shown["filter"]["enabled"], true);
+    assert_eq!(shown["calibration"]["blend"], 0.5);
+    assert_eq!(shown["adjustment"]["ranges"]["jawOpen"]["min"], 0.25);
+    let config = std::fs::read_to_string(cli.data().join("config.json")).unwrap();
+    assert!(config.contains("\"mutation\"") && config.contains("\"osc\""), "{config}");
+
+    assert!(cli.fail(&["mutation", "set", "not json"]).contains("valid JSON"));
+    assert!(cli.fail(&["mutation", "set", "[1]"]).contains("JSON object"));
+    assert!(cli.fail(&["mutation", "set", r#"{"filter":{"enabled":"yes"}}"#]).contains("invalid mutation settings"));
+}
+
+#[test]
+fn calibration_show_and_reset() {
+    let cli = Cli::new();
+    assert!(cli.ok(&["calibration", "show"]).contains("No calibration data"));
+    std::fs::write(
+        cli.data().join("calibration.json"),
+        r#"{"shapes":[{"name":"JawOpen","peak":0.8,"progress":0.5},{"name":"EyeWideRight","peak":0.99,"progress":1.0}]}"#,
+    )
+    .unwrap();
+    let table = cli.ok(&["calibration", "show"]);
+    assert!(table.contains("JawOpen") && table.contains("0.80") && table.contains("50%"), "{table}");
+    assert!(table.contains("EyeWideRight") && !table.contains("TongueOut"), "{table}");
+    assert!(table.contains("Mean progress: 75%"), "{table}");
+
+    assert!(cli.fail(&["calibration", "reset", "NoSuchShape"]).contains("unknown shape"));
+    cli.ok(&["calibration", "reset", "JawOpen"]);
+    let table = cli.ok(&["calibration", "show"]);
+    assert!(!table.contains("JawOpen") && table.contains("EyeWideRight"), "{table}");
+    cli.ok(&["calibration", "reset"]);
+    assert!(cli.ok(&["calibration", "show"]).contains("No calibration data"));
+}
+
+#[test]
 fn real_vrcft_zip_installs() {
     let cli = Cli::new();
     let zip = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../test-modules/FrameEyeOSC_1.0.1-claim-with-packets.zip");

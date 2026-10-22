@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use fb_core::fb_mutate::{AdjustGroup, CalibrationData, MutationConfig, Mutator};
 use fb_core::{Engine, EngineSnapshot, ModuleOptions, ModuleSettingsView};
 use serde::Serialize;
 use tauri::{AppHandle, State};
@@ -11,7 +12,7 @@ use tauri_plugin_dialog::DialogExt;
 
 use crate::state::{Phase, Supervisor};
 use crate::updates::{self, AppSettings, ModuleUpdate};
-use crate::view::{FrameView, HostPaths, OscConfigInput, expression_names, image_data_url};
+use crate::view::{AdjustGroupView, FrameView, HostPaths, OscConfigInput, expression_names, image_data_url};
 
 type Sup<'a> = State<'a, Arc<Supervisor>>;
 type CmdResult<T> = Result<T, String>;
@@ -178,6 +179,66 @@ pub async fn latest_frame(sup: Sup<'_>) -> CmdResult<FrameView> {
     let engine = sup.engine()?;
     let (frame, claims) = engine.latest_frame();
     Ok(FrameView::new(&frame, claims.eye, claims.expression))
+}
+
+#[tauri::command]
+pub async fn latest_raw_frame(sup: Sup<'_>) -> CmdResult<FrameView> {
+    let engine = sup.engine()?;
+    let (frame, claims) = engine.latest_raw_frame();
+    Ok(FrameView::new(&frame, claims.eye, claims.expression))
+}
+
+/// Chooses whether pushed `frame` events carry the merged input (`raw`) or the mutated output.
+#[tauri::command]
+pub fn set_live_raw(sup: Sup<'_>, raw: bool) {
+    sup.set_live_raw(raw);
+}
+
+/// The mutation settings. Works while the engine is down too (reads `config.json`).
+#[tauri::command]
+pub async fn get_mutation_config(sup: Sup<'_>) -> CmdResult<MutationConfig> {
+    let sup = Arc::clone(sup.inner());
+    blocking(move || match sup.engine() {
+        Ok(engine) => Ok(engine.mutation_config()),
+        Err(_) => fb_core::load_config(&sup.data_dir).map(|c| c.mutation).map_err(|e| format!("{e:#}")),
+    })
+    .await
+}
+
+/// Applies mutation settings and returns the sanitized result. While the engine is down this edits `config.json`.
+#[tauri::command]
+pub async fn set_mutation_config(sup: Sup<'_>, config: MutationConfig) -> CmdResult<MutationConfig> {
+    let sup = Arc::clone(sup.inner());
+    blocking(move || match sup.engine() {
+        Ok(engine) => engine.set_mutation_config(config).map_err(|e| format!("{e:#}")),
+        Err(_) => {
+            let sanitized = Mutator::new(MutationConfig::default(), CalibrationData::default()).set_config(config);
+            let mut persisted = fb_core::load_config(&sup.data_dir).map_err(|e| format!("{e:#}"))?;
+            persisted.mutation = sanitized.clone();
+            fb_core::save_config(&sup.data_dir, &persisted).map_err(|e| format!("{e:#}"))?;
+            Ok(sanitized)
+        }
+    })
+    .await
+}
+
+/// Learned calibration (empty while the engine is down).
+#[tauri::command]
+pub async fn get_calibration(sup: Sup<'_>) -> CmdResult<CalibrationData> {
+    let engine = sup.engine().ok();
+    blocking(move || Ok(engine.map(|e| e.calibration()).unwrap_or_default())).await
+}
+
+/// Resets calibration of one shape (by `Expression` name) or of all shapes.
+#[tauri::command]
+pub async fn reset_calibration(sup: Sup<'_>, shape: Option<String>) -> CmdResult<()> {
+    with_engine(&sup, move |e| e.reset_calibration(shape.as_deref())).await
+}
+
+/// Parameter adjustment groups with their UI labels, in display order.
+#[tauri::command]
+pub fn get_adjust_groups() -> Vec<AdjustGroupView> {
+    AdjustGroup::ALL.iter().map(|g| AdjustGroupView::new(*g)).collect()
 }
 
 /// Tells the backend whether the Live view is open (frames are only pushed while it is).

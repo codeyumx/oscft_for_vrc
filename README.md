@@ -13,12 +13,13 @@ from VRCFT source.
 crates/fb-tracking     unified tracking data model (88 expression shapes, eyes, head)
 crates/fb-protocol     Rust side of the module host IPC protocol (spec/ipc-protocol.md)
 crates/fb-osc          OSC encoding, VRChat parameter mapping, avatar discovery (config files + OSCQuery)
+crates/fb-mutate       tracking mutation: calibration, unified correctors, parameter adjustment, One Euro filter
 crates/fb-core         engine: module install/storage, processes, claim arbitration, merge, notifications, settings
 crates/facebridge-cli  headless CLI
 apps/facebridge        Tauri v2 desktop app (src-tauri/ + static ui/, no Node)
 dotnet/                VRCFaceTracking.SDK / VRCFaceTracking.Core compat assemblies, FaceBridge.Sdk,
                        FaceBridge.ModuleHost (one process per module), tests
-spec/                  contracts: module-api, ipc-protocol, engine-api, osc-output
+spec/                  contracts: module-api, ipc-protocol, engine-api, osc-output, mutation
 test-modules/          real VRCFT module zips used by tests
 ```
 
@@ -58,6 +59,11 @@ facebridge-cli run
 The module host is found via `moduleHost` in config, `FACEBRIDGE_MODULE_HOST`, `<exe dir>/module-host/`, then the
 dev output `dotnet/artifacts/module-host/`. Data lives in `%APPDATA%\FaceBridge` (`--data-dir` overrides).
 
+Tracking settings (calibration, unified correctors, parameter adjustment, data filter; `spec/mutation.md`) apply to
+every frame before it is sent. They are stored in `config.json` (`mutation`), learned calibration in
+`calibration.json`. From the CLI: `facebridge-cli mutation show`, `mutation set '{"filter":{"enabled":true}}'`,
+`calibration show`, `calibration reset [Shape]`.
+
 Module update check (Settings page, on by default, stored in `app-settings.json` in the data folder): for each
 module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub repository, the app asks the GitHub
 API for the latest release at startup, after installs and every 6 hours, and shows "Update available" on the
@@ -75,8 +81,17 @@ Real-module tests use `test-modules/*.zip` and the published module host; they s
 ## What the user sees from modules
 
 Every module card on the Modules page has a collapsible **Module settings** section: first the options FaceBridge
-offers for every module (today: *Allow notifications from this module*, on by default, stored per module in
-`config.json`), then, below a divider, the form the module declared itself (if any).
+offers for every module (*Allow notifications from this module*, on by default, and *Wait for tracking data before
+claiming* with a timeout in seconds, on / 10 s by default; both stored per module in `config.json`), then, below a
+divider, the form the module declared itself (if any).
+
+Modules start one at a time in priority order and claim eye / face tracking in `Init`. Some modules claim without any
+headset sending, which would block a lower-priority module whose headset is. So while modules start, a module that
+claimed something must show live data (two frames that differ) for each claimed part within its timeout; the next
+module is not started before that. A part without data goes back to the pool and is offered to the next module that
+supports it (state *No data* when nothing is left); with no later module that could take it, the claim is kept. This
+happens only at startup: a module that later stops sending (headset put down) keeps its claim, and *Restart modules*
+runs the sequence again. Turn the option off to keep the old behaviour of claiming without proof.
 
 Pop-ups (bottom right, fade in and out, on every page) show a module's notifications, its `Error`/`Critical` log
 entries (first line; the full entry stays in Output) and a module that fails. With notifications turned off for a

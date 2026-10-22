@@ -1,6 +1,7 @@
 //! Management commands. They use the engine in offline mode: nothing is started.
 
 use anyhow::{Context, Result, bail};
+use fb_core::fb_mutate::MutationConfig;
 use fb_core::{Engine, ModuleView};
 use serde_json::{Map, Value};
 use std::io::Write;
@@ -152,6 +153,67 @@ pub fn settings(data_dir: PathBuf, query: &str, assignments: &[String]) -> Resul
     Ok(())
 }
 
+/// Merges `patch` into `base`: objects are merged key by key, everything else (including arrays and `null`)
+/// replaces the value.
+pub fn deep_merge(base: &mut Value, patch: Value) {
+    match (base, patch) {
+        (Value::Object(base), Value::Object(patch)) => {
+            for (key, value) in patch {
+                deep_merge(base.entry(key).or_insert(Value::Null), value);
+            }
+        }
+        (base, patch) => *base = patch,
+    }
+}
+
+fn print_mutation(cfg: &MutationConfig) -> Result<()> {
+    println!("{}", serde_json::to_string_pretty(cfg)?);
+    Ok(())
+}
+
+pub fn mutation_show(data_dir: PathBuf) -> Result<()> {
+    print_mutation(&open(data_dir)?.mutation_config())
+}
+
+/// Merges the partial JSON object `json` onto the current mutation settings, stores the sanitized result and
+/// prints it.
+pub fn mutation_set(data_dir: PathBuf, json: &str) -> Result<()> {
+    let patch: Value = serde_json::from_str(json).context("the argument is not valid JSON")?;
+    if !patch.is_object() {
+        bail!("expected a JSON object such as '{{\"filter\":{{\"enabled\":true}}}}'");
+    }
+    let engine = open(data_dir)?;
+    let mut merged = serde_json::to_value(engine.mutation_config())?;
+    deep_merge(&mut merged, patch);
+    let cfg: MutationConfig = serde_json::from_value(merged).context("invalid mutation settings")?;
+    print_mutation(&engine.set_mutation_config(cfg)?)
+}
+
+pub fn calibration_show(data_dir: PathBuf) -> Result<()> {
+    let data = open(data_dir)?.calibration();
+    let rows: Vec<_> = data.shapes.iter().filter(|s| s.peak > 0.0 || s.progress > 0.0).collect();
+    if rows.is_empty() {
+        println!("No calibration data yet.");
+        return Ok(());
+    }
+    let width = rows.iter().map(|s| s.name.len()).max().unwrap_or(0).max("Shape".len());
+    println!("{:<width$}  {:>6}  {:>9}", "Shape", "Peak", "Progress");
+    for s in &rows {
+        println!("{:<width$}  {:>6.2}  {:>8.0}%", s.name, s.peak, s.progress * 100.0);
+    }
+    println!("Mean progress: {:.0}% over {} shapes with a peak", data.mean_progress() * 100.0, data.shapes.iter().filter(|s| s.peak > 0.0).count());
+    Ok(())
+}
+
+pub fn calibration_reset(data_dir: PathBuf, shape: Option<&str>) -> Result<()> {
+    open(data_dir)?.reset_calibration(shape)?;
+    match shape {
+        Some(name) => println!("Reset calibration of {name}"),
+        None => println!("Reset calibration of all shapes"),
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,5 +265,15 @@ mod tests {
         assert_eq!(parse_assignment("expr=a=b").unwrap(), ("expr".into(), Value::String("a=b".into())));
         assert!(parse_assignment("novalue").is_err());
         assert!(parse_assignment("=x").is_err());
+    }
+
+    #[test]
+    fn deep_merge_merges_objects_and_replaces_everything_else() {
+        let mut base = serde_json::json!({ "a": { "x": 1, "y": 2 }, "list": [1, 2], "keep": true });
+        deep_merge(&mut base, serde_json::json!({ "a": { "y": 3, "z": { "w": 4 } }, "list": [9], "new": null }));
+        assert_eq!(
+            base,
+            serde_json::json!({ "a": { "x": 1, "y": 3, "z": { "w": 4 } }, "list": [9], "keep": true, "new": null })
+        );
     }
 }

@@ -74,6 +74,8 @@ impl Printer {
             EngineEvent::NotificationsChanged => self.notifications_changed(&engine.snapshot()),
             EngineEvent::OscStatusChanged => self.osc_changed(&engine.snapshot(), false),
             EngineEvent::AvatarChanged => self.avatar_changed(&engine.snapshot()),
+            // Nothing to print: settings changes are made through the CLI itself or the desktop app.
+            EngineEvent::MutationChanged => {}
         }
     }
 

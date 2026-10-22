@@ -12,6 +12,8 @@ mod settings;
 mod store;
 mod types;
 
+pub use fb_mutate;
+
 pub use config::{EngineConfig, ModuleEntry, ModuleOptions, default_data_dir, load_config, save_config, write_json_atomic};
 pub use engine::{Engine, LOG_CAPACITY, ModuleId};
 pub use host::{HOST_ENV_VAR, discover_module_host};

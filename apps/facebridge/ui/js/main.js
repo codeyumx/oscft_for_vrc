@@ -8,6 +8,7 @@ import { mountHome } from './pages/home.js';
 import { mountLive } from './pages/live.js';
 import { mountModules } from './pages/modules.js';
 import { mountOutput } from './pages/output.js';
+import { mountTracking } from './pages/tracking.js';
 import { mountSettings } from './pages/settings.js';
 
 /**
@@ -21,6 +22,7 @@ const PAGES = [
   { id: 'home', label: 'Home', mount: mountHome },
   { id: 'modules', label: 'Modules', mount: mountModules },
   { id: 'live', label: 'Live', mount: mountLive },
+  { id: 'tracking', label: 'Tracking', mount: mountTracking },
   { id: 'output', label: 'Output', mount: mountOutput },
   { id: 'settings', label: 'Settings', mount: mountSettings },
 ];

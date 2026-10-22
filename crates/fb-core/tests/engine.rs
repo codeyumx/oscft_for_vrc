@@ -52,25 +52,29 @@ impl Harness {
     }
 
     fn wait(&self, what: &str, pred: impl Fn(&EngineSnapshot) -> bool) -> EngineSnapshot {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            let snap = self.engine.snapshot();
-            if pred(&snap) {
-                return snap;
-            }
-            if Instant::now() > deadline {
-                let logs: Vec<_> = snap.logs.iter().map(|l| format!("[{}] {}", l.level, l.message)).collect();
-                let mods: Vec<_> =
-                    snap.modules.iter().map(|m| format!("{} {:?} {:?}", m.name, m.state, m.last_error)).collect();
-                panic!("timed out waiting for {what}\nmodules: {mods:#?}\nlogs: {logs:#?}");
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
+        wait_engine(&self.engine, what, pred)
     }
 
     fn wait_state(&self, id: &str, state: ModuleRunState) -> EngineSnapshot {
         let id = id.to_owned();
         self.wait(&format!("{id} to be {state:?}"), move |s| module(s, &id).state == state)
+    }
+}
+
+fn wait_engine(engine: &Engine, what: &str, pred: impl Fn(&EngineSnapshot) -> bool) -> EngineSnapshot {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let snap = engine.snapshot();
+        if pred(&snap) {
+            return snap;
+        }
+        if Instant::now() > deadline {
+            let logs: Vec<_> = snap.logs.iter().map(|l| format!("[{}] {}", l.level, l.message)).collect();
+            let mods: Vec<_> =
+                snap.modules.iter().map(|m| format!("{} {:?} {:?}", m.name, m.state, m.last_error)).collect();
+            panic!("timed out waiting for {what}\nmodules: {mods:#?}\nlogs: {logs:#?}");
+        }
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 
@@ -350,7 +354,7 @@ fn notifications_can_be_turned_off_per_module_and_the_choice_persists() {
     let snap = h.wait("first notification", |s| s.notifications.len() == 1);
     assert!(module(&snap, &quiet).options.allow_notifications, "on by default");
 
-    h.engine.set_module_options(&quiet, ModuleOptions { allow_notifications: false }).unwrap();
+    h.engine.set_module_options(&quiet, ModuleOptions { allow_notifications: false, ..ModuleOptions::default() }).unwrap();
     let snap = h.engine.snapshot();
     assert!(snap.notifications.is_empty(), "turning notifications off removes the current ones");
     assert!(!module(&snap, &quiet).options.allow_notifications);
@@ -362,7 +366,7 @@ fn notifications_can_be_turned_off_per_module_and_the_choice_persists() {
     let config: Value = serde_json::from_str(&std::fs::read_to_string(h.data().join("config.json")).unwrap()).unwrap();
     assert_eq!(config["modules"][0]["options"]["allowNotifications"], json!(false));
 
-    h.engine.set_module_options(&quiet, ModuleOptions { allow_notifications: true }).unwrap();
+    h.engine.set_module_options(&quiet, ModuleOptions::default()).unwrap();
     h.engine.restart_modules().unwrap();
     h.wait("notifications back on", |s| s.notifications.len() == 1);
     assert!(h.engine.set_module_options("00000000-0000-0000-0000-000000000000", ModuleOptions::default()).is_err());
@@ -527,4 +531,140 @@ fn osc_config_can_be_replaced_and_is_persisted() {
     assert_eq!(snap.osc.send_addr, osc.send_addr);
     let cfg = fb_core::load_config(&h.data()).unwrap();
     assert_eq!(cfg.osc, osc);
+}
+
+// --- startup live-data check -------------------------------------------------------------------------------------
+
+fn data_options(secs: u32) -> ModuleOptions {
+    ModuleOptions { data_timeout_secs: secs, ..ModuleOptions::default() }
+}
+
+#[test]
+fn module_without_data_is_torn_down_and_the_next_module_gets_its_part() {
+    let h = Harness::new();
+    let a = h.install("A-silent", json!({ "supportsEye": true, "claimEye": true, "varyEye": false }));
+    let b = h.install("B-live", json!({ "supportsEye": true, "claimEye": true }));
+    h.engine.set_module_options(&a, data_options(1)).unwrap();
+    h.engine.shutdown();
+
+    // A fresh engine: nothing is known about B's `supports` yet, so B counts as a candidate.
+    let engine = Engine::start(h.data()).unwrap();
+    let started = Instant::now();
+    let snap = wait_engine(&engine, "A without data, B running", |s| {
+        module(s, &a).state == ModuleRunState::NoData && module(s, &b).state == ModuleRunState::Running
+    });
+    assert!(started.elapsed() >= Duration::from_millis(900), "A got its full timeout: {:?}", started.elapsed());
+    let (ma, mb) = (module(&snap, &a), module(&snap, &b));
+    assert!(!ma.claims.eye && ma.last_error.as_deref().unwrap().contains("No tracking data within 1 s; eye tracking was offered"));
+    assert!(mb.claims.eye);
+    assert!(has_log(&snap, "No tracking data within 1 s; eye tracking was offered to the next module"));
+    let (_, claims) = engine.latest_frame();
+    assert!(claims.eye, "B's eye data flows");
+    engine.shutdown();
+}
+
+#[test]
+fn a_lone_module_without_data_keeps_its_claim() {
+    let h = Harness::new();
+    let a = h.install("A-alone", json!({ "supportsEye": true, "claimEye": true, "varyEye": false }));
+    // A disabled module cannot take over, and neither can one that is known not to support the part.
+    let b = h.install("B-disabled", json!({ "supportsEye": true, "claimEye": true }));
+    let c = h.install("C-expression-only", json!({ "supportsEye": false, "supportsExpression": true, "claimExpression": true }));
+    h.wait_state(&c, ModuleRunState::Running);
+    h.engine.set_module_enabled(&b, false).unwrap();
+    h.engine.set_module_options(&a, data_options(1)).unwrap();
+    h.engine.restart_modules().unwrap();
+    let snap = h.wait("A and C running", |s| {
+        module(s, &a).state == ModuleRunState::Running && module(s, &c).state == ModuleRunState::Running
+    });
+    assert!(module(&snap, &a).claims.eye);
+    std::thread::sleep(Duration::from_millis(1500));
+    let snap = h.engine.snapshot();
+    assert_eq!(module(&snap, &a).state, ModuleRunState::Running);
+    assert!(module(&snap, &a).claims.eye && module(&snap, &a).last_error.is_none());
+    assert!(has_log(&snap, "No later module could take over eye tracking"));
+    assert!(!has_log(&snap, "No tracking data"));
+    assert!(h.engine.latest_frame().1.eye);
+}
+
+#[test]
+fn only_the_part_without_data_is_released() {
+    let h = Harness::new();
+    let a = h.install(
+        "A-both",
+        json!({
+            "supportsEye": true, "supportsExpression": true, "claimEye": true, "claimExpression": true,
+            "varyExpression": false, "jaw": 0.9,
+        }),
+    );
+    let b = h.install("B-expression", json!({ "supportsEye": false, "supportsExpression": true, "claimExpression": true }));
+    h.wait_state(&b, ModuleRunState::Unclaimed); // A holds everything; B is only learned about (it supports expression)
+    h.engine.set_module_options(&a, data_options(1)).unwrap();
+    h.engine.restart_modules().unwrap();
+    let snap = h.wait("A reduced to eye, B on expression", |s| {
+        module(s, &a).state == ModuleRunState::Running
+            && !module(s, &a).claims.expression
+            && module(s, &b).state == ModuleRunState::Running
+    });
+    assert!(module(&snap, &a).claims.eye);
+    assert!(module(&snap, &b).claims.expression && !module(&snap, &b).claims.eye);
+    assert!(has_log(&snap, "No tracking data within 1 s; expression tracking was offered to the next module"));
+    assert!(has_log(&snap, "init eye=false expression=true"), "B was offered only the released part");
+    assert!(module(&snap, &a).last_error.is_none(), "A is still running with the part that has data");
+    let (frame, claims) = h.engine.latest_frame();
+    assert!(claims.eye && claims.expression);
+    assert_eq!(frame.shape(Expression::JawOpen), 0.5, "B's expression data (A's constant jaw is not used)");
+}
+
+#[test]
+fn require_data_off_keeps_the_claim_and_the_next_module_is_not_offered_it() {
+    let h = Harness::new();
+    let a = h.install("A-trusting", json!({ "supportsEye": true, "claimEye": true, "varyEye": false }));
+    let b = h.install("B-live", json!({ "supportsEye": true, "claimEye": true }));
+    h.engine.set_module_options(&a, ModuleOptions { require_data: false, data_timeout_secs: 1, ..ModuleOptions::default() }).unwrap();
+    h.engine.restart_modules().unwrap();
+    h.wait("A running, B unclaimed", |s| {
+        module(s, &a).state == ModuleRunState::Running && module(s, &b).state == ModuleRunState::Unclaimed
+    });
+    std::thread::sleep(Duration::from_millis(1500));
+    let snap = h.engine.snapshot();
+    assert!(module(&snap, &a).claims.eye && !module(&snap, &b).claims.eye);
+    assert!(has_log(&snap, "Live-data check is off for this module"));
+    assert!(!has_log(&snap, "No tracking data"));
+    let config: Value = serde_json::from_str(&std::fs::read_to_string(h.data().join("config.json")).unwrap()).unwrap();
+    assert_eq!(config["modules"][0]["options"]["requireData"], json!(false));
+    assert_eq!(config["modules"][0]["options"]["dataTimeoutSecs"], json!(1));
+}
+
+#[test]
+fn data_that_stops_after_the_check_never_revokes_the_claim() {
+    let h = Harness::new();
+    let a = h.install("A-pauses", json!({ "supportsEye": true, "claimEye": true, "freezeAfterFrames": 20 }));
+    let b = h.install("B-live", json!({ "supportsEye": true, "claimEye": true }));
+    h.engine.set_module_options(&a, data_options(1)).unwrap();
+    h.engine.restart_modules().unwrap();
+    h.wait("A running, B unclaimed", |s| {
+        module(s, &a).state == ModuleRunState::Running && module(s, &b).state == ModuleRunState::Unclaimed
+    });
+    // A's data is frozen from now on (the headset was put down); well past the check timeout it still owns the eye.
+    std::thread::sleep(Duration::from_millis(2500));
+    let snap = h.engine.snapshot();
+    assert_eq!(module(&snap, &a).state, ModuleRunState::Running);
+    assert!(module(&snap, &a).claims.eye && module(&snap, &a).last_error.is_none());
+    assert_eq!(module(&snap, &b).state, ModuleRunState::Unclaimed);
+    assert!(!has_log(&snap, "No tracking data"));
+    assert!(has_log(&snap, "Live eye tracking data received"));
+    assert!(h.engine.latest_frame().1.eye);
+}
+
+#[test]
+fn module_options_are_clamped_and_default_for_new_entries() {
+    let h = Harness::new();
+    let id = h.install("Opts", json!({ "claimEye": true }));
+    let o = module(&h.engine.snapshot(), &id).options;
+    assert!(o.require_data && o.data_timeout_secs == 10 && o.allow_notifications);
+    h.engine.set_module_options(&id, data_options(0)).unwrap();
+    assert_eq!(module(&h.engine.snapshot(), &id).options.data_timeout_secs, 1);
+    h.engine.set_module_options(&id, data_options(5000)).unwrap();
+    assert_eq!(module(&h.engine.snapshot(), &id).options.data_timeout_secs, 120);
 }

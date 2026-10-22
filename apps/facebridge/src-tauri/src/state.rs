@@ -49,6 +49,8 @@ pub struct Supervisor {
     generation: AtomicU64,
     starter: Mutex<Option<JoinHandle<()>>>,
     live: AtomicBool,
+    /// Whether the Live view shows the merged input (`true`) or the mutated output.
+    live_raw: AtomicBool,
     stopping: AtomicBool,
     live_thread: OnceLock<Thread>,
     pub updates: UpdateChecker,
@@ -71,6 +73,7 @@ impl Supervisor {
             generation: AtomicU64::new(0),
             starter: Mutex::new(None),
             live: AtomicBool::new(false),
+            live_raw: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             live_thread: OnceLock::new(),
             updates: UpdateChecker::new(settings.check_module_updates),
@@ -195,6 +198,10 @@ impl Supervisor {
         }
     }
 
+    pub fn set_live_raw(&self, raw: bool) {
+        self.live_raw.store(raw, Ordering::SeqCst);
+    }
+
     /// Spawns the thread that pushes `frame` events (only while the Live view is open and the window visible).
     pub fn spawn_live_pusher(self: &Arc<Self>, app: &AppHandle) {
         let sup = Arc::clone(self);
@@ -214,7 +221,8 @@ impl Supervisor {
                     continue;
                 }
                 if let Some(engine) = sup.running_engine() {
-                    let (frame, claims) = engine.latest_frame();
+                    let (frame, claims) =
+                        if sup.live_raw.load(Ordering::SeqCst) { engine.latest_raw_frame() } else { engine.latest_frame() };
                     let view = FrameView::new(&frame, claims.eye, claims.expression);
                     if last.as_ref() != Some(&view) {
                         let _ = app.emit(EVENT_FRAME, &view);
@@ -237,6 +245,7 @@ enum EngineEventView {
     NotificationsChanged,
     AvatarChanged,
     OscStatusChanged,
+    MutationChanged,
     Log { entry: fb_core::LogEntry },
 }
 
@@ -256,6 +265,7 @@ fn spawn_forwarder(app: &AppHandle, sup: &Arc<Supervisor>, engine: &Arc<Engine>,
                         EngineEvent::NotificationsChanged => EngineEventView::NotificationsChanged,
                         EngineEvent::AvatarChanged => EngineEventView::AvatarChanged,
                         EngineEvent::OscStatusChanged => EngineEventView::OscStatusChanged,
+                        EngineEvent::MutationChanged => EngineEventView::MutationChanged,
                         EngineEvent::Log(entry) => EngineEventView::Log { entry },
                     };
                     let _ = app.emit(EVENT_ENGINE, view);

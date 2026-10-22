@@ -2,7 +2,7 @@
 
 use crate::engine::{Inner, TEARDOWN_TIMEOUT, apply_settings, lock};
 use crate::host::{discover_module_host, host_command};
-use crate::merge::RunKey;
+use crate::merge::{LiveCheck, RunKey};
 use crate::process::{assign_to_job, pump_lines};
 use crate::settings::Schema;
 use crate::types::{EngineEvent, ModuleRunState};
@@ -28,6 +28,9 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 /// Control block of one running module host; shared between its thread and the engine API.
 pub(crate) struct RunCtl {
     pub key: RunKey,
+    /// Started by the start sequence (so later modules will still be offered whatever this one releases), not on
+    /// its own by an install / enable.
+    pub in_sequence: bool,
     /// The engine asked this run to stop (stop, disable, uninstall, restart, shutdown).
     pub stop: AtomicBool,
     /// `Init` is about to be (or has been) sent: settings changes are pushed to the child from now on.
@@ -38,9 +41,10 @@ pub(crate) struct RunCtl {
 }
 
 impl RunCtl {
-    fn new(key: RunKey) -> Self {
+    fn new(key: RunKey, in_sequence: bool) -> Self {
         Self {
             key,
+            in_sequence,
             stop: AtomicBool::new(false),
             init_sent: AtomicBool::new(false),
             writer: Mutex::new(None),
@@ -129,7 +133,7 @@ pub(crate) fn spawn_start_sequence(inner: &Arc<Inner>, generation: u64) {
             if lock(&inner.state).generation != generation {
                 return;
             }
-            start_module(&inner, &id, generation);
+            start_module(&inner, &id, generation, true);
         }
     });
 }
@@ -143,7 +147,7 @@ pub(crate) fn spawn_hot_start(inner: &Arc<Inner>, id: &str, generation: u64) {
     let id = id.to_owned();
     let _ = std::thread::Builder::new()
         .name("fb-hot-start".into())
-        .spawn(move || start_module(&inner, &id, generation));
+        .spawn(move || start_module(&inner, &id, generation, false));
 }
 
 /// Signals "startup finished" (running, unclaimed or failed) to whoever is waiting to start the next module.
@@ -156,7 +160,7 @@ impl StartupSignal {
 }
 
 /// Spawns the module host for `id` and blocks until it is running, unclaimed or failed.
-fn start_module(inner: &Arc<Inner>, id: &str, generation: u64) {
+fn start_module(inner: &Arc<Inner>, id: &str, generation: u64, in_sequence: bool) {
     let _startup = lock(&inner.startup);
     let (ctl, host_cfg, dotnet_root) = {
         let mut st = lock(&inner.state);
@@ -169,7 +173,7 @@ fn start_module(inner: &Arc<Inner>, id: &str, generation: u64) {
         if rt.run.is_some() {
             return;
         }
-        let ctl = Arc::new(RunCtl::new(inner.next_run_key()));
+        let ctl = Arc::new(RunCtl::new(inner.next_run_key(), in_sequence));
         rt.run = Some(Arc::clone(&ctl));
         rt.state = ModuleRunState::Starting;
         rt.supports = Claims::default();
@@ -219,6 +223,8 @@ enum End {
     Closed(Option<String>),
     /// The module claimed nothing and was torn down.
     Unclaimed,
+    /// None of its claims showed live data in the startup check; it was torn down (`last_error` says so).
+    NoData,
 }
 
 fn run_module(
@@ -234,7 +240,7 @@ fn run_module(
 
     // The host is on its way out (or must be made to be): wait a moment, then kill.
     let grace = match &result {
-        Ok(End::TeardownDone | End::Unclaimed) => TEARDOWN_TIMEOUT,
+        Ok(End::TeardownDone | End::Unclaimed | End::NoData) => TEARDOWN_TIMEOUT,
         _ => Duration::from_secs(2),
     };
     let exit = reap(ctl, grace);
@@ -243,6 +249,7 @@ fn run_module(
     let requested = ctl.stop.load(Ordering::SeqCst);
     let (state, error) = match result {
         Ok(End::Unclaimed) => (ModuleRunState::Unclaimed, None),
+        Ok(End::NoData) => (ModuleRunState::NoData, None),
         _ if requested => (ModuleRunState::Stopped, None),
         Ok(End::TeardownDone) => (ModuleRunState::Exited, None),
         Ok(End::Closed(err)) => match (exit, err) {
@@ -395,6 +402,7 @@ fn drive(
     };
     inner.update_module(id, |rt| {
         rt.supports = supports;
+        rt.supports_known = true;
         rt.state = ModuleRunState::Starting;
     });
     inner.log(
@@ -408,7 +416,7 @@ fn drive(
     let Some(offer) = lock(&inner.merger).offer(supports) else {
         inner.update_module(id, |rt| rt.state = ModuleRunState::Unclaimed);
         inner.log(Some(id), "information", "engine", "Nothing left to claim for this module; it was not started");
-        return finish_unclaimed(inner, id, ctl, &rx, signal);
+        return finish_unclaimed(inner, id, ctl, &rx, signal, End::Unclaimed);
     };
 
     // Stored settings go first so the module sees them during `Initialize`.
@@ -429,22 +437,32 @@ fn drive(
         other => return Err(format!("protocol error: expected InitResult, got {}", message_name(&other))),
     };
     let granted = lock(&inner.merger).claim(ctl.key, offer, claimed);
-    let running = granted.eye || granted.expression;
     inner.update_module(id, |rt| {
         rt.init_name = Some(name).filter(|n| !n.is_empty());
         rt.images = images;
         rt.claims = granted;
-        rt.state = if running { ModuleRunState::Running } else { ModuleRunState::Unclaimed };
     });
-    if !running {
+    if !granted.eye && !granted.expression {
+        inner.update_module(id, |rt| rt.state = ModuleRunState::Unclaimed);
         inner.log(Some(id), "information", "engine", "The module claimed nothing; it was torn down");
-        return finish_unclaimed(inner, id, ctl, &rx, signal);
+        return finish_unclaimed(inner, id, ctl, &rx, signal, End::Unclaimed);
     }
+    let kept = match check_live_data(inner, id, ctl, &rx, granted) {
+        Probe::Kept(kept) => kept,
+        Probe::Ended(end) => return Ok(end),
+    };
+    if !kept.eye && !kept.expression {
+        return finish_unclaimed(inner, id, ctl, &rx, signal, End::NoData);
+    }
+    inner.update_module(id, |rt| {
+        rt.claims = kept;
+        rt.state = ModuleRunState::Running;
+    });
     inner.log(
         Some(id),
         "information",
         "engine",
-        format!("Running (claims: eye {}, expression {})", granted.eye, granted.expression),
+        format!("Running (claims: eye {}, expression {})", kept.eye, kept.expression),
     );
     signal.done();
 
@@ -469,25 +487,155 @@ fn drive(
     }
 }
 
-/// The module has nothing to do: tell it to tear down and wait (briefly) for it to finish.
+/// The module has nothing to do (`end` says why): tell it to tear down and wait (briefly) for it to finish.
 fn finish_unclaimed(
     inner: &Arc<Inner>,
     id: &str,
     ctl: &Arc<RunCtl>,
     rx: &crossbeam_channel::Receiver<Incoming>,
     signal: &mut StartupSignal,
+    end: End,
 ) -> Result<End, String> {
     let _ = ctl.send(&HostMessage::Teardown);
     signal.done();
     let deadline = Instant::now() + TEARDOWN_TIMEOUT;
     loop {
         match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-            Ok(Incoming::Msg(ChildMessage::TeardownDone)) | Ok(Incoming::End(_)) | Err(_) => return Ok(End::Unclaimed),
+            Ok(Incoming::Msg(ChildMessage::TeardownDone)) | Ok(Incoming::End(_)) | Err(_) => return Ok(end),
             Ok(Incoming::Msg(msg)) => {
                 handle_common(inner, id, ctl, msg);
             }
         }
     }
+}
+
+fn describe_parts(parts: Claims) -> &'static str {
+    match (parts.eye, parts.expression) {
+        (true, true) => "eye and expression tracking",
+        (true, false) => "eye tracking",
+        (false, true) => "expression tracking",
+        (false, false) => "nothing",
+    }
+}
+
+/// Parts a module that is later in the start sequence could still take over: what its `supports` says, or
+/// everything while that is not known yet. Only a start sequence offers parts on to later modules; a module that
+/// is started alone (install / enable) has nobody to hand a part to.
+fn later_takers(inner: &Inner, ctl: &RunCtl, id: &str) -> Claims {
+    let mut takers = Claims::default();
+    if !ctl.in_sequence {
+        return takers;
+    }
+    let st = lock(&inner.state);
+    let Some(pos) = st.config.modules.iter().position(|m| m.id == id) else { return takers };
+    for entry in st.config.modules[pos + 1..].iter().filter(|m| m.enabled) {
+        let Some(rt) = st.modules.get(&entry.id).filter(|rt| rt.run.is_none()) else { continue };
+        takers.eye |= !rt.supports_known || rt.supports.eye;
+        takers.expression |= !rt.supports_known || rt.supports.expression;
+    }
+    takers
+}
+
+enum Probe {
+    /// The check is over; the module keeps these claims (none: it was marked `NoData` and must be torn down).
+    Kept(Claims),
+    /// The run ended while waiting.
+    Ended(End),
+}
+
+/// The startup-only live-data check (see `ModuleOptions::require_data`). Runs after `Init` granted `granted`, while
+/// the startup lock is still held. Waits until every part that a later module could take over has shown live data
+/// or the module's timeout passes; parts still without data then go back to the unclaimed pool. Claims are never
+/// revisited after this returns.
+fn check_live_data(
+    inner: &Arc<Inner>,
+    id: &str,
+    ctl: &Arc<RunCtl>,
+    rx: &crossbeam_channel::Receiver<Incoming>,
+    granted: Claims,
+) -> Probe {
+    let options = lock(&inner.state).config.modules.iter().find(|m| m.id == id).map(|m| m.options).unwrap_or_default();
+    if !options.require_data {
+        inner.log(Some(id), "information", "engine", "Live-data check is off for this module; keeping its claims");
+        return Probe::Kept(granted);
+    }
+    let takers = later_takers(inner, ctl, id);
+    let watch = Claims { eye: granted.eye && takers.eye, expression: granted.expression && takers.expression };
+    let unwatched = Claims { eye: granted.eye && !watch.eye, expression: granted.expression && !watch.expression };
+    if unwatched.eye || unwatched.expression {
+        inner.log(
+            Some(id),
+            "information",
+            "engine",
+            format!("No later module could take over {}; keeping that claim without a data check", describe_parts(unwatched)),
+        );
+    }
+    let mut live = LiveCheck::new(watch);
+    let timeout = options.data_timeout();
+    if watch.eye || watch.expression {
+        inner.log(
+            Some(id),
+            "information",
+            "engine",
+            format!("Waiting up to {} s for {} data", timeout.as_secs(), describe_parts(watch)),
+        );
+    }
+    let deadline = Instant::now() + timeout;
+    loop {
+        let pending = live.pending();
+        if !pending.eye && !pending.expression {
+            break;
+        }
+        match rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(Incoming::Msg(ChildMessage::Frame(f))) => {
+                lock(&inner.merger).update(ctl.key, f.flags, &f.frame);
+                live.feed(&f.frame);
+            }
+            Ok(Incoming::Msg(ChildMessage::TeardownDone)) => return Probe::Ended(End::TeardownDone),
+            Ok(Incoming::Msg(msg)) => {
+                if let Some(other) = handle_common(inner, id, ctl, msg) {
+                    inner.log(Some(id), "warning", "engine", format!("Ignoring unexpected {}", message_name(&other)));
+                }
+            }
+            Ok(Incoming::End(err)) => return Probe::Ended(End::Closed(err)),
+            Err(crossbeam_channel::RecvTimeoutError::Timeout) => break,
+            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return Probe::Ended(End::Closed(None)),
+        }
+    }
+
+    // Everything still pending after the loop is a part a later module could take (only those are watched).
+    let released = live.pending();
+    if released.eye || released.expression {
+        let kept = Claims { eye: granted.eye && !released.eye, expression: granted.expression && !released.expression };
+        let verb = if released.eye && released.expression { "were" } else { "was" };
+        let message = format!(
+            "No tracking data within {} s; {} {verb} offered to the next module",
+            timeout.as_secs(),
+            describe_parts(released)
+        );
+        let none_left = !kept.eye && !kept.expression;
+        inner.update_module(id, |rt| {
+            rt.claims = kept;
+            if none_left {
+                rt.state = ModuleRunState::NoData;
+                rt.last_error = Some(message.clone());
+            }
+        });
+        inner.log(Some(id), "warning", "engine", message);
+        let mut merger = lock(&inner.merger);
+        merger.release_parts(ctl.key, released);
+        let (frame, claims) = merger.merged();
+        inner.submit(&frame, claims);
+        return Probe::Kept(kept);
+    }
+    if watch.eye || watch.expression {
+        inner.log(Some(id), "information", "engine", format!("Live {} data received", describe_parts(watch)));
+    }
+    // Frames that arrived during the check were held back; publish the current state now.
+    let merger = lock(&inner.merger);
+    let (frame, claims) = merger.merged();
+    inner.submit(&frame, claims);
+    Probe::Kept(granted)
 }
 
 /// Accepts connections until one starts with a valid `Hello`; other connections are dropped.

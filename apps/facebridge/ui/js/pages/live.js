@@ -91,6 +91,7 @@ export function mountLive(root) {
   const status = h('div', { class: 'banner info', role: 'status' });
   const onlyActive = h('input', { type: 'checkbox', id: 'only-active' });
   const filter = h('label', { class: 'switch', for: 'only-active' }, onlyActive, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Only active shapes'));
+  const sourceSelect = h('select', { id: 'live-source', 'aria-label': 'Frame source' }, h('option', { value: 'output' }, 'Output'), h('option', { value: 'raw' }, 'Raw'));
   const head = h('dd', { class: 'mono' });
   const shapesHost = h('div', { class: 'section' });
 
@@ -160,6 +161,15 @@ export function mountLive(root) {
     }
   }
 
+  sourceSelect.addEventListener('change', () => {
+    const raw = sourceSelect.value === 'raw';
+    api
+      .setLiveRaw(raw)
+      .then(() => (raw ? api.latestRawFrame() : api.latestFrame()))
+      .then(render)
+      .catch((e) => toast(errMsg(e), 'error'));
+  });
+
   onlyActive.addEventListener('change', () => {
     if (lastFrame) render(lastFrame);
   });
@@ -168,7 +178,7 @@ export function mountLive(root) {
     h(
       'div',
       { class: 'page' },
-      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Live'), h('p', { class: 'sub' }, 'What FaceBridge is sending to VRChat, as seen after merging all modules.'))),
+      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Live'), h('p', { class: 'sub' }, 'Output is what FaceBridge sends to VRChat; Raw is the merged module data before the Tracking adjustments.')), h('label', { class: 'live-source' }, h('span', { class: 'muted small' }, 'Show '), sourceSelect)),
       status,
       h('div', { class: 'eyes' }, left.el, right.el),
       h('section', { class: 'card', 'aria-label': 'Head pose' }, h('h2', null, 'Head'), h('dl', { class: 'kv' }, h('dt', null, 'Rotation'), head)),
@@ -178,6 +188,7 @@ export function mountLive(root) {
 
   // Frames are pushed by the backend only while the page is open and the window visible.
   const stop = onFrame(render);
+  api.setLiveRaw(false).catch(() => {});
   api.setLive(true).catch((e) => toast(errMsg(e), 'error'));
   api
     .latestFrame()

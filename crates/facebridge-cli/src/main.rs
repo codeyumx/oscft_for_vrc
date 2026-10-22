@@ -45,6 +45,32 @@ enum Command {
         #[arg(value_name = "KEY=VALUE")]
         assignments: Vec<String>,
     },
+    /// Tracking mutation settings: calibration, unified correctors, parameter adjustment, data filter.
+    Mutation {
+        #[command(subcommand)]
+        action: MutationCommand,
+    },
+    /// Learned calibration data.
+    Calibration {
+        #[command(subcommand)]
+        action: CalibrationCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum MutationCommand {
+    /// Print the tracking mutation settings (calibration, correctors, parameter adjustment, data filter) as JSON.
+    Show,
+    /// Merge a partial JSON object into the settings, e.g. '{"filter":{"enabled":true}}', and print the result.
+    Set { json: String },
+}
+
+#[derive(Subcommand)]
+enum CalibrationCommand {
+    /// List the shapes with learned calibration data and the mean progress.
+    Show,
+    /// Forget the learned calibration of one shape (an expression name such as JawOpen), or of all shapes.
+    Reset { shape: Option<String> },
 }
 
 fn main() {
@@ -66,5 +92,13 @@ fn real_main() -> Result<()> {
         Command::Enable { module } => commands::set_enabled(data_dir, &module, true),
         Command::Disable { module } => commands::set_enabled(data_dir, &module, false),
         Command::Settings { module, assignments } => commands::settings(data_dir, &module, &assignments),
+        Command::Mutation { action } => match action {
+            MutationCommand::Show => commands::mutation_show(data_dir),
+            MutationCommand::Set { json } => commands::mutation_set(data_dir, &json),
+        },
+        Command::Calibration { action } => match action {
+            CalibrationCommand::Show => commands::calibration_show(data_dir),
+            CalibrationCommand::Reset { shape } => commands::calibration_reset(data_dir, shape.as_deref()),
+        },
     }
 }

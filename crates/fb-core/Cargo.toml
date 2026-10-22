@@ -21,6 +21,7 @@ doc = false
 anyhow = "1.0.104"
 crossbeam-channel = "0.5.17"
 dirs = "7.0.0"
+fb-mutate = { path = "../fb-mutate" }
 fb-osc = { path = "../fb-osc" }
 fb-protocol = { path = "../fb-protocol" }
 fb-tracking = { path = "../fb-tracking" }

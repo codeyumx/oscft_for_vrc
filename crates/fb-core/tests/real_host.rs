@@ -86,8 +86,10 @@ fn real_zips_load_in_the_real_host_and_shut_down_cleanly() {
     let start = Instant::now();
     engine.shutdown();
     assert!(start.elapsed() < Duration::from_secs(15), "shutdown too slow: {:?}", start.elapsed());
+    // Every host process is gone. A module that already gave up (claimed nothing, e.g. FrameEyeOSC without
+    // packets from the headset) keeps its Unclaimed state; everything else must have been stopped.
     for m in engine.snapshot().modules {
-        assert_eq!(m.state, ModuleRunState::Stopped, "{}", m.name);
+        assert!(matches!(m.state, ModuleRunState::Stopped | ModuleRunState::Unclaimed), "{}: {:?}", m.name, m.state);
     }
 }
 

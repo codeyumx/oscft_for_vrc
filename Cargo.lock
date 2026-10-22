@@ -1141,6 +1141,7 @@ dependencies = [
  "anyhow",
  "crossbeam-channel",
  "dirs 7.0.0",
+ "fb-mutate",
  "fb-osc",
  "fb-protocol",
  "fb-tracking",
@@ -1151,6 +1152,15 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "zip",
+]
+
+[[package]]
+name = "fb-mutate"
+version = "0.1.0"
+dependencies = [
+ "fb-tracking",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

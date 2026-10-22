@@ -14,8 +14,8 @@ import { createSettingsForm } from './settings-form.js';
 
 /**
  * Options FaceBridge offers for every module (stored in config.json). A new option needs an entry here and a
- * field in fb-core's `ModuleOptions`.
- * @type {{ key: keyof ModuleOptions, title: string, label: string, hint: string }[]}
+ * field in fb-core's `ModuleOptions`. A toggle may carry a number that goes with it (shown next to the toggle).
+ * @type {{ key: 'allowNotifications' | 'requireData', title: string, label: string, hint: string, number?: { key: 'dataTimeoutSecs', label: string, min: number, max: number } }[]}
  */
 const MODULE_OPTIONS = [
   {
@@ -23,6 +23,13 @@ const MODULE_OPTIONS = [
     title: 'Notifications',
     label: 'Allow notifications from this module',
     hint: 'Shows its messages and errors as pop-ups and on the Home page. When off they only go to the Output log. A module that fails is always reported.',
+  },
+  {
+    key: 'requireData',
+    title: 'Tracking data',
+    label: 'Wait for tracking data before claiming',
+    number: { key: 'dataTimeoutSecs', label: 'Wait up to', min: 1, max: 120 },
+    hint: 'At startup, a module that claims eye or face tracking must send changing data within this time, otherwise the part goes to the next module in line (a module without a successor keeps it). Only checked while modules start; a module that later stops sending keeps its claim. Applies the next time modules start.',
   },
 ];
 
@@ -58,34 +65,70 @@ function createCard(id) {
 
   /** @type {ModuleOptions | null} */
   let options = null;
+  /**
+   * Stores `patch` on top of the current options; `revert` puts the control back when that fails.
+   * @param {Partial<ModuleOptions>} patch
+   * @param {HTMLInputElement[]} controls disabled while saving
+   * @param {() => void} revert
+   */
+  async function saveOptions(patch, controls, revert) {
+    if (!options) return;
+    for (const c of controls) c.disabled = true;
+    try {
+      await api.setModuleOptions(id, { ...options, ...patch });
+      await refresh();
+    } catch (e) {
+      revert();
+      toast(errMsg(e), 'error');
+    } finally {
+      for (const c of controls) c.disabled = false;
+    }
+  }
   const optionInputs = MODULE_OPTIONS.map((o) => {
     const input = h('input', { type: 'checkbox', 'aria-describedby': `${id}-${o.key}-hint` });
-    input.addEventListener('change', async () => {
-      if (!options) return;
+    const num = o.number;
+    const number = num
+      ? h('input', { type: 'number', class: 'option-seconds', min: num.min, max: num.max, step: 1, 'aria-describedby': `${id}-${o.key}-hint` })
+      : null;
+    input.addEventListener('change', () => {
       const wanted = input.checked;
-      input.disabled = true;
-      try {
-        await api.setModuleOptions(id, { ...options, [o.key]: wanted });
-        await refresh();
-      } catch (e) {
+      void saveOptions({ [o.key]: wanted }, number ? [input, number] : [input], () => {
         input.checked = !wanted;
-        toast(errMsg(e), 'error');
-      } finally {
-        input.disabled = false;
-      }
+      });
     });
-    return { option: o, input };
+    if (number && num) {
+      number.addEventListener('change', () => {
+        const wanted = number.valueAsNumber;
+        const previous = options?.[num.key] ?? num.min;
+        if (!Number.isInteger(wanted) || wanted < num.min || wanted > num.max) {
+          number.value = String(previous);
+          toast(`${num.label} must be a whole number from ${num.min} to ${num.max}.`, 'error');
+          return;
+        }
+        void saveOptions({ [num.key]: wanted }, [input, number], () => {
+          number.value = String(previous);
+        });
+      });
+    }
+    return { option: o, input, number };
   });
   const builtin = h(
     'section',
     { class: 'settings-part', 'aria-label': 'FaceBridge options' },
     h('h3', null, 'FaceBridge options'),
-    ...optionInputs.map(({ option, input }) =>
+    ...optionInputs.map(({ option, input, number }) =>
       h(
         'div',
         { class: 'field' },
         h('span', { class: 'label', 'aria-hidden': 'true' }, option.title),
-        h('div', { class: 'control' }, h('label', { class: 'switch' }, input, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, option.label))),
+        h(
+          'div',
+          { class: 'control' },
+          h('label', { class: 'switch' }, input, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, option.label)),
+          number && option.number ? h('span', { class: 'muted small' }, option.number.label) : null,
+          number,
+          number ? h('span', { class: 'muted small' }, 'seconds') : null,
+        ),
         h('div', { class: 'hint', id: `${id}-${option.key}-hint` }, option.hint),
       ),
     ),
@@ -231,10 +274,15 @@ function createCard(id) {
       if (loadedImageCount !== m.imageCount) void loadImage(m.imageCount);
 
       options = m.options;
-      for (const { option, input } of optionInputs) {
+      for (const { option, input, number } of optionInputs) {
         input.checked = m.options[option.key];
         input.disabled = !engineUp;
         input.setAttribute('aria-label', `${option.label} (${m.name})`);
+        if (number && option.number) {
+          if (document.activeElement !== number) number.value = String(m.options[option.number.key]);
+          number.disabled = !engineUp || !m.options[option.key];
+          number.setAttribute('aria-label', `${option.number.label} (${m.name})`);
+        }
       }
       ownTitle.textContent = `${m.name} settings`;
       noOwnSettings.hidden = m.hasSettings;

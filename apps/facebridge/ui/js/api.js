@@ -6,6 +6,9 @@
 /** @typedef {import('./types.js').ModuleSettingsView} ModuleSettingsView */
 /** @typedef {import('./types.js').OscConfig} OscConfig */
 /** @typedef {import('./types.js').HostPaths} HostPaths */
+/** @typedef {import('./types.js').MutationConfig} MutationConfig */
+/** @typedef {import('./types.js').CalibrationData} CalibrationData */
+/** @typedef {import('./types.js').AdjustGroupInfo} AdjustGroupInfo */
 
 /** @type {any} */
 const tauri = /** @type {any} */ (window).__TAURI__;
@@ -85,6 +88,23 @@ export const api = {
   dismissNotification: (id) => invoke('dismiss_notification', { id }),
   /** @returns {Promise<FrameView>} */
   latestFrame: () => invoke('latest_frame'),
+  /** @returns {Promise<FrameView>} the merged input before calibration, correction, adjustment and filtering */
+  latestRawFrame: () => invoke('latest_raw_frame'),
+  /** @param {boolean} raw  whether pushed `frame` events carry the raw input instead of the output */
+  setLiveRaw: (raw) => invoke('set_live_raw', { raw }),
+  /** @returns {Promise<MutationConfig>} */
+  getMutationConfig: () => invoke('get_mutation_config'),
+  /**
+   * @param {MutationConfig} config
+   * @returns {Promise<MutationConfig>} the sanitized config
+   */
+  setMutationConfig: (config) => invoke('set_mutation_config', { config }),
+  /** @returns {Promise<CalibrationData>} */
+  getCalibration: () => invoke('get_calibration'),
+  /** @param {string|null} shape  Expression name, or null for all shapes */
+  resetCalibration: (shape) => invoke('reset_calibration', { shape }),
+  /** @returns {Promise<AdjustGroupInfo[]>} */
+  getAdjustGroups: () => invoke('get_adjust_groups'),
   /** @param {boolean} live */
   setLive: (live) => invoke('set_live', { live }),
   /** @param {OscConfig} osc */

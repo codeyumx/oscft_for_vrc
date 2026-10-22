@@ -1,0 +1,18 @@
+[package]
+name = "fb-mutate"
+description = "FaceBridge tracking mutation: calibration, unified correctors, parameter adjustment, One Euro data filter (spec/mutation.md)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fb-tracking = { path = "../fb-tracking" }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

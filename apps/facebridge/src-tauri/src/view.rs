@@ -64,6 +64,23 @@ impl FrameView {
     }
 }
 
+/// One parameter adjustment group as the UI lists it.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AdjustGroupView {
+    pub key: &'static str,
+    pub label: &'static str,
+    /// Head groups are signed and unbounded; shape groups map into 0..1.
+    pub is_head: bool,
+}
+
+impl AdjustGroupView {
+    pub fn new(group: fb_core::fb_mutate::AdjustGroup) -> Self {
+        let key = group.name();
+        Self { key, label: group.label(), is_head: key.starts_with("head") }
+    }
+}
+
 pub fn expression_names() -> Vec<&'static str> {
     (0..SHAPE_COUNT).filter_map(Expression::from_index).map(Expression::name).collect()
 }

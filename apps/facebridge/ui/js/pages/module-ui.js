@@ -12,6 +12,7 @@ const STATE_BADGES = {
   initializing: { label: 'Initializing', cls: 'warn' },
   running: { label: 'Running', cls: 'ok' },
   unclaimed: { label: 'Not needed', cls: 'info' },
+  nodata: { label: 'No data', cls: 'warn' },
   failed: { label: 'Failed', cls: 'danger' },
   exited: { label: 'Exited', cls: 'danger' },
 };
@@ -23,11 +24,13 @@ export function moduleStateBadge(m) {
   const title =
     m.state === 'unclaimed'
       ? 'Everything this module can track is already provided by a module with higher priority.'
-      : m.status === 1
-        ? 'Module reports: active'
-        : m.status === 0
-          ? 'Module reports: idle'
-          : '';
+      : m.state === 'nodata'
+        ? 'The module claimed tracking but sent no live data while modules were starting, so its claim was offered to the next module. Restart modules to try again.'
+        : m.status === 1
+          ? 'Module reports: active'
+          : m.status === 0
+            ? 'Module reports: idle'
+            : '';
   return h('span', { class: `badge ${info.cls}`, title }, label);
 }
 
