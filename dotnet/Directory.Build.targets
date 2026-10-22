@@ -1,0 +1,3 @@
+<Project>
+  <!-- Present only to stop MSBuild's upward search for Directory.Build.targets outside facebridge/. -->
+</Project>

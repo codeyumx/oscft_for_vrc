@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A minimal VRCFT-style module, built the way third parties build theirs: against the compat interface
+       assemblies (which are NOT copied next to it) plus an optional FaceBridge.Sdk.dll shipped in the folder. -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>TestModule</AssemblyName>
+    <RootNamespace>TestModule</RootNamespace>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\VRCFaceTracking.SDK\VRCFaceTracking.SDK.csproj" Private="false" />
+    <ProjectReference Include="..\..\VRCFaceTracking.Core\VRCFaceTracking.Core.csproj" Private="false" />
+    <ProjectReference Include="..\..\FaceBridge.Sdk\FaceBridge.Sdk.csproj" />
+  </ItemGroup>
+</Project>

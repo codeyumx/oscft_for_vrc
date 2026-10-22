@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>FaceBridge.Sdk</AssemblyName>
+    <RootNamespace>FaceBridge.Sdk</RootNamespace>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Version>1.0.0</Version>
+    <Description>Optional FaceBridge API for tracking-module authors: user notifications and per-module settings. Degrades to logging and a local JSON file when the module runs inside VRCFaceTracking.</Description>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Lowest version a net8 module can already satisfy; the host and VRCFaceTracking unify upwards. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" VersionOverride="8.0.2" />
+    <InternalsVisibleTo Include="FaceBridge.Tests" />
+  </ItemGroup>
+</Project>

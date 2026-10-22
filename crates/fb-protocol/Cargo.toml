@@ -1,0 +1,15 @@
+[package]
+name = "fb-protocol"
+description = "Wire protocol between the FaceBridge host and the .NET module host (spec/ipc-protocol.md)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fb-tracking = { path = "../fb-tracking" }
+thiserror = "2.0.21"

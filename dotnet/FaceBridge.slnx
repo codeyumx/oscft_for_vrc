@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="VRCFaceTracking.SDK/VRCFaceTracking.SDK.csproj" />
+    <Project Path="VRCFaceTracking.Core/VRCFaceTracking.Core.csproj" />
+    <Project Path="FaceBridge.Sdk/FaceBridge.Sdk.csproj" />
+    <Project Path="FaceBridge.ModuleHost/FaceBridge.ModuleHost.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/TestModule/TestModule.csproj" />
+    <Project Path="tests/FaceBridge.Tests/FaceBridge.Tests.csproj" />
+  </Folder>
+</Solution>

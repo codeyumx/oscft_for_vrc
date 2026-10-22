@@ -1,0 +1,42 @@
+[package]
+name = "fb-core"
+description = "FaceBridge engine: module install/storage, module host processes, claim arbitration, notifications, settings"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+# Test double for FaceBridge.ModuleHost, used by tests/engine.rs (CARGO_BIN_EXE_fb-fake-module-host).
+[[bin]]
+name = "fb-fake-module-host"
+path = "src/bin/fake_module_host.rs"
+test = false
+doc = false
+
+[dependencies]
+anyhow = "1.0.104"
+crossbeam-channel = "0.5.17"
+dirs = "7.0.0"
+fb-osc = { path = "../fb-osc" }
+fb-protocol = { path = "../fb-protocol" }
+fb-tracking = { path = "../fb-tracking" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2.0.21"
+uuid = { version = "1.28.0", features = ["v4"] }
+zip = { version = "9.0.5", default-features = false, features = ["deflate"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

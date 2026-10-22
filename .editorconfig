@@ -1,0 +1,21 @@
+# FaceBridge root. root = true stops editorconfig lookup from reaching folders outside this project.
+root = true
+
+[*]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.{cs,csproj,props,targets,slnx,json}]
+indent_size = 4
+
+[*.{cs}]
+csharp_style_namespace_declarations = file_scoped:suggestion
+dotnet_sort_system_directives_first = true
+
+[*.{rs,toml}]
+indent_size = 4
+
+[*.{html,css,js,yml,yaml}]
+indent_size = 2

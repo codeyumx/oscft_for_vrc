@@ -1,0 +1,9 @@
+/target/
+bin/
+obj/
+*.user
+.vs/
+/dist/
+/dotnet/artifacts/
+# VRCFaceTracking sources and the fork, kept locally for reference only (never committed).
+/reference/

@@ -1,0 +1,18 @@
+[package]
+name = "fb-osc"
+description = "OSC encoding, VRChat parameter mapping, avatar discovery (OSCQuery / config files) and sending"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fb-tracking = { path = "../fb-tracking" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+mdns-sd = "0.13"
+tiny_http = "0.12"
