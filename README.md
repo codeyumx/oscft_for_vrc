@@ -184,3 +184,7 @@ UserNotifications.Clear("no-headset");
 
 To get update notices, publish GitHub releases tagged with the version (`v1.2.0` or `1.2.0`) and set `DownloadUrl`
 or `ModulePageUrl` in `module.json` to the repository.
+
+## License
+
+Apache-2.0, see `LICENSE`. The module zips in `test-modules/` belong to their authors; see `test-modules/THIRD-PARTY-NOTICES.md`.
