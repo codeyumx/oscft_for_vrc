@@ -146,7 +146,6 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
   padding: 4px; background: var(--bg-raised); border: 1px solid var(--border-strong); border-radius: var(--radius);
   box-shadow: 0 8px 24px rgba(0, 0, 0, .25);
 }
-.menu[hidden] { display: none; }
 .menu button { background: none; border-color: transparent; text-align: left; white-space: nowrap; }
 .menu button:hover:not(:disabled), .menu button:focus-visible { background: var(--bg-hover); border-color: transparent; }
 
@@ -236,6 +235,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .module-usage { white-space: pre-wrap; color: var(--text-dim); font-size: 12.5px; }
 details.settings > summary { cursor: pointer; font-weight: 500; padding: 4px 0; }
 details.settings[open] > summary { margin-bottom: 8px; }
+.expander-group { display: flex; flex-direction: column; gap: 10px; }
+.expander { align-self: flex-start; }
+.expander::before { content: '+'; display: inline-block; width: 1em; margin-right: 6px; font-weight: 600; color: var(--accent); }
+.expander[aria-expanded="true"]::before { content: '\2212'; }
 .settings-body { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 14px; }
 .settings-part { display: flex; flex-direction: column; gap: 8px; }
 .settings-part > h3 { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }

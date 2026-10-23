@@ -55,7 +55,7 @@ export function mountSettings(root) {
   let updatesSaving = false;
 
   // ---- window ----
-  const closeToTray = h('input', { type: 'checkbox', id: 's-tray', 'aria-describedby': 's-tray-hint' });
+  const closeToTray = h('input', { type: 'checkbox', id: 's-tray' });
   const closeToTraySwitch = h('label', { class: 'switch', for: 's-tray' }, closeToTray, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Close to system tray'));
   let traySaving = false;
 
@@ -95,7 +95,7 @@ export function mountSettings(root) {
     h('p', { class: 'muted' }, 'Modules run in a separate .NET process. Leave these empty to let OSCFT find them.'),
     h('div', { class: 'field' }, h('label', { for: 's-host' }, 'Module host executable'), h('div', { class: 'control' }, moduleHost, browseHost), h('div', { class: 'hint', id: 's-host-hint' }, 'FaceBridge.ModuleHost.exe. Automatic: FACEBRIDGE_MODULE_HOST, the module-host folder next to the app, then the development build.')),
     h('div', { class: 'field' }, h('label', { for: 's-dotnet' }, '.NET installation folder'), h('div', { class: 'control' }, dotnetRoot, browseDotnet), h('div', { class: 'hint', id: 's-dotnet-hint' }, 'Passed to the module host as DOTNET_ROOT. Only needed when .NET 10 is not installed system-wide.')),
-    h('div', { class: 'form-actions' }, hostSave, h('span', { class: 'muted small' }, 'Restarts the engine and all modules.')),
+    h('div', { class: 'form-actions' }, hostSave),
   );
 
   const updatesCard = h(
@@ -109,7 +109,7 @@ export function mountSettings(root) {
     'section',
     { class: 'form card', 'aria-labelledby': 'window-set-h' },
     h('h2', { id: 'window-set-h' }, 'Window'),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Closing'), h('div', { class: 'control' }, closeToTraySwitch), h('div', { class: 'hint', id: 's-tray-hint' }, 'On: closing the window keeps tracking running with an icon in the system tray; use Quit in its menu to exit. Off: no tray icon, and closing the window quits.')),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Closing'), h('div', { class: 'control' }, closeToTraySwitch)),
   );
 
   oscForm.addEventListener('submit', (e) => e.preventDefault());

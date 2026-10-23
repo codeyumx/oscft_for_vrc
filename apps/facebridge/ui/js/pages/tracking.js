@@ -131,8 +131,15 @@ export function mountTracking(root) {
 
   const calProgress = h('div', { class: 'bar', role: 'progressbar', 'aria-label': 'Overall calibration progress', 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('i'));
   const calProgressText = h('span', { class: 'mono' });
-  const calList = h('div', { class: 'trk-shape-list' });
-  const calDetails = h('details', { class: 'settings' }, h('summary', null, 'Per-shape calibration'), calList);
+  const calList = h('div', { class: 'trk-shape-list', id: 'trk-cal-list', hidden: true });
+  const calToggle = h('button', { type: 'button', class: 'expander', 'aria-expanded': 'false', 'aria-controls': 'trk-cal-list' }, 'Show per-shape calibration');
+  calToggle.addEventListener('click', () => {
+    const open = calList.hidden;
+    calList.hidden = !open;
+    calToggle.setAttribute('aria-expanded', String(open));
+    calToggle.textContent = open ? 'Hide per-shape calibration' : 'Show per-shape calibration';
+  });
+  const calDetails = h('div', { class: 'expander-group' }, calToggle, calList);
   const calReset = confirmButton('Reset calibration', 'Confirm reset', async () => {
     await api.resetCalibration(null);
     toast('Calibration reset.', 'ok');
