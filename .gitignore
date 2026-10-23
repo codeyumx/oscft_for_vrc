@@ -1,6 +1,6 @@
 /target/
-bin/
-obj/
+/dotnet/**/bin/
+/dotnet/**/obj/
 *.user
 .vs/
 /dist/

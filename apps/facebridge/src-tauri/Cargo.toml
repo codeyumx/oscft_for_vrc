@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "FaceBridge desktop app: runs VRCFaceTracking modules and sends face tracking to VRChat over OSC"
+description = "OSCFT for VRC desktop app: runs VRCFaceTracking modules and sends face tracking to VRChat over OSC"
 default-run = "facebridge"
 
 [lib]

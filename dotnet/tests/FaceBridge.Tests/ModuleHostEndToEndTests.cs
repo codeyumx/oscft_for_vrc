@@ -275,7 +275,12 @@ public class ModuleHostEndToEndTests
     public void Exits_with_code_6_when_the_parent_process_dies()
     {
         (string module, string data) = Paths();
-        var parentInfo = new ProcessStartInfo("ping.exe", "-n 60 127.0.0.1") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true };
+        var parentInfo = OperatingSystem.IsWindows()
+            ? new ProcessStartInfo("ping.exe", "-n 60 127.0.0.1")
+            : new ProcessStartInfo("sleep", "60");
+        parentInfo.UseShellExecute = false;
+        parentInfo.CreateNoWindow = true;
+        parentInfo.RedirectStandardOutput = true;
         using Process parent = Process.Start(parentInfo)!;
         using var host = new FakeHost();
         host.Start(module, data, parentPid: parent.Id);

@@ -53,7 +53,7 @@ function navigate() {
   currentId = id;
   main.replaceChildren();
   const page = /** @type {typeof PAGES[number]} */ (PAGES.find((p) => p.id === id));
-  document.title = `${page.label} - FaceBridge`;
+  document.title = `${page.label} - OSCFT for VRC`;
   for (const [pid, link] of navLinks) {
     if (pid === id) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');

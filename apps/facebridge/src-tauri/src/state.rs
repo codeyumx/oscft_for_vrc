@@ -11,7 +11,7 @@ use fb_core::{Engine, EngineEvent};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::updates::{self, UpdateChecker};
+use crate::updates::{self, AppSettings, UpdateChecker};
 use crate::view::FrameView;
 
 /// Frame push interval for the Live view (~20 Hz).
@@ -55,6 +55,8 @@ pub struct Supervisor {
     live_thread: OnceLock<Thread>,
     pub updates: UpdateChecker,
     update_thread: OnceLock<Thread>,
+    /// Mirror of `app-settings.json`; changed only through `update_settings` so a save never drops another setting.
+    settings: Mutex<AppSettings>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -78,7 +80,22 @@ impl Supervisor {
             live_thread: OnceLock::new(),
             updates: UpdateChecker::new(settings.check_module_updates),
             update_thread: OnceLock::new(),
+            settings: Mutex::new(settings),
         })
+    }
+
+    pub fn settings(&self) -> AppSettings {
+        lock(&self.settings).clone()
+    }
+
+    /// Applies `change`, saves `app-settings.json`, and keeps the change only if the save succeeded.
+    pub fn update_settings(&self, change: impl FnOnce(&mut AppSettings)) -> anyhow::Result<()> {
+        let mut settings = lock(&self.settings);
+        let mut next = settings.clone();
+        change(&mut next);
+        updates::save_settings(&self.data_dir, &next)?;
+        *settings = next;
+        Ok(())
     }
 
     pub fn phase(&self) -> Phase {

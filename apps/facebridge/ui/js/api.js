@@ -14,7 +14,7 @@
 const tauri = /** @type {any} */ (window).__TAURI__;
 
 if (!tauri) {
-  throw new Error('window.__TAURI__ is missing: this UI must run inside the FaceBridge desktop app.');
+  throw new Error('window.__TAURI__ is missing: this UI must run inside the OSCFT for VRC desktop app.');
 }
 
 /**
@@ -113,6 +113,8 @@ export const api = {
   setHostPaths: (paths) => invoke('set_host_paths', { paths }),
   /** @param {boolean} enabled */
   setCheckModuleUpdates: (enabled) => invoke('set_check_module_updates', { enabled }),
+  /** @param {boolean} enabled */
+  setCloseToTray: (enabled) => invoke('set_close_to_tray', { enabled }),
   restartEngine: () => invoke('restart_engine'),
   /**
    * @param {boolean} folder

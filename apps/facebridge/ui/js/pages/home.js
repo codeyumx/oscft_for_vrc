@@ -104,7 +104,7 @@ function avatarCard() {
         h('dt', null, 'Source'),
         h('dd', null, avatarSource(avatar.source)),
       )
-    : h('p', { class: 'muted' }, 'No avatar reported yet. FaceBridge falls back to its default parameter set until VRChat announces one.');
+    : h('p', { class: 'muted' }, 'No avatar reported yet. OSCFT falls back to its default parameter set until VRChat announces one.');
   return h(
     'section',
     { class: 'card', 'aria-labelledby': 'avatar-h' },

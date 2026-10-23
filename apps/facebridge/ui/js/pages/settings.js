@@ -54,6 +54,11 @@ export function mountSettings(root) {
   const checkUpdatesSwitch = h('label', { class: 'switch', for: 's-updates' }, checkUpdates, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Check for module updates'));
   let updatesSaving = false;
 
+  // ---- window ----
+  const closeToTray = h('input', { type: 'checkbox', id: 's-tray', 'aria-describedby': 's-tray-hint' });
+  const closeToTraySwitch = h('label', { class: 'switch', for: 's-tray' }, closeToTray, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Close to system tray'));
+  let traySaving = false;
+
   const configError = h('div', { class: 'banner error', role: 'alert', hidden: true });
   const dataDir = h('dd', { class: 'mono' });
   const versionEl = h('dd', null);
@@ -79,7 +84,7 @@ export function mountSettings(root) {
     h('div', { class: 'field' }, h('label', { for: 's-addr' }, 'Send to'), h('div', { class: 'control' }, sendAddr), h('div', { class: 'hint', id: 's-addr-hint' }, 'Where VRChat listens for OSC. VRChat uses 127.0.0.1:9000 unless you changed it.'), addrErr),
     field('s-listen', 'Listen port', listenPort, 'UDP port for legacy avatar-change messages and replies. 0 = rely on OSCQuery only.'),
     field('s-rate', 'Output rate (Hz)', rateHz, 'How often tracking data is sent to VRChat.'),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Discovery'), h('div', { class: 'control' }, oscquerySwitch), h('div', { class: 'hint' }, 'Lets VRChat and FaceBridge find each other automatically and read the avatar parameter list.')),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Discovery'), h('div', { class: 'control' }, oscquerySwitch), h('div', { class: 'hint' }, 'Lets VRChat and OSCFT find each other automatically and read the avatar parameter list.')),
     h('div', { class: 'form-actions' }, oscSave),
   );
 
@@ -87,7 +92,7 @@ export function mountSettings(root) {
     'form',
     { class: 'form card', novalidate: true, 'aria-labelledby': 'host-set-h' },
     h('h2', { id: 'host-set-h' }, 'Module host'),
-    h('p', { class: 'muted' }, 'Modules run in a separate .NET process. Leave these empty to let FaceBridge find them.'),
+    h('p', { class: 'muted' }, 'Modules run in a separate .NET process. Leave these empty to let OSCFT find them.'),
     h('div', { class: 'field' }, h('label', { for: 's-host' }, 'Module host executable'), h('div', { class: 'control' }, moduleHost, browseHost), h('div', { class: 'hint', id: 's-host-hint' }, 'FaceBridge.ModuleHost.exe. Automatic: FACEBRIDGE_MODULE_HOST, the module-host folder next to the app, then the development build.')),
     h('div', { class: 'field' }, h('label', { for: 's-dotnet' }, '.NET installation folder'), h('div', { class: 'control' }, dotnetRoot, browseDotnet), h('div', { class: 'hint', id: 's-dotnet-hint' }, 'Passed to the module host as DOTNET_ROOT. Only needed when .NET 10 is not installed system-wide.')),
     h('div', { class: 'form-actions' }, hostSave, h('span', { class: 'muted small' }, 'Restarts the engine and all modules.')),
@@ -98,6 +103,13 @@ export function mountSettings(root) {
     { class: 'form card', 'aria-labelledby': 'updates-set-h' },
     h('h2', { id: 'updates-set-h' }, 'Module updates'),
     h('div', { class: 'field' }, h('span', { class: 'label' }, 'Updates'), h('div', { class: 'control' }, checkUpdatesSwitch), h('div', { class: 'hint', id: 's-updates-hint' }, 'Asks GitHub for the latest release of each module that is published there, and shows "Update available" on the Modules page. Checked at startup, after installs, and every 6 hours.')),
+  );
+
+  const windowCard = h(
+    'section',
+    { class: 'form card', 'aria-labelledby': 'window-set-h' },
+    h('h2', { id: 'window-set-h' }, 'Window'),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Closing'), h('div', { class: 'control' }, closeToTraySwitch), h('div', { class: 'hint', id: 's-tray-hint' }, 'On: closing the window keeps tracking running with an icon in the system tray; use Quit in its menu to exit. Off: no tray icon, and closing the window quits.')),
   );
 
   oscForm.addEventListener('submit', (e) => e.preventDefault());
@@ -156,6 +168,23 @@ export function mountSettings(root) {
     await refresh();
   });
 
+  closeToTray.addEventListener('change', async () => {
+    const enabled = closeToTray.checked;
+    traySaving = true;
+    closeToTray.disabled = true;
+    try {
+      await api.setCloseToTray(enabled);
+      toast(enabled ? 'Closing the window now keeps OSCFT in the tray' : 'Closing the window now quits OSCFT', 'ok');
+    } catch (e) {
+      closeToTray.checked = !enabled;
+      toast(errMsg(e), 'error');
+    } finally {
+      traySaving = false;
+      closeToTray.disabled = false;
+    }
+    await refresh();
+  });
+
   /**
    * @param {HTMLInputElement} input
    * @param {boolean} folder
@@ -183,6 +212,7 @@ export function mountSettings(root) {
       configError,
       oscForm,
       hostForm,
+      windowCard,
       updatesCard,
       h('section', { class: 'card', 'aria-labelledby': 'about-h' }, h('h2', { id: 'about-h' }, 'About'), h('dl', { class: 'kv' }, h('dt', null, 'Version'), versionEl, h('dt', null, 'Data folder'), dataDir)),
     ),
@@ -211,6 +241,7 @@ export function mountSettings(root) {
       dotnetRoot.value = state.hostPaths.dotnetRoot ?? '';
     }
     if (!updatesSaving) checkUpdates.checked = state.checkModuleUpdates;
+    if (!traySaving) closeToTray.checked = state.closeToTray;
     if (osc || state.snapshot) filled = true;
   }
 

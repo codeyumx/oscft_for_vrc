@@ -26,6 +26,7 @@ export const state = {
   configError: null,
   checkModuleUpdates: true,
   moduleUpdates: [],
+  closeToTray: true,
 };
 
 /** @type {LogEntry[]} */

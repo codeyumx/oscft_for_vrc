@@ -24,11 +24,13 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub check_module_updates: bool,
+    /// Closing the window hides it to a tray icon (tracking keeps running); off = no tray icon, closing quits.
+    pub close_to_tray: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { check_module_updates: true }
+        Self { check_module_updates: true, close_to_tray: true }
     }
 }
 
@@ -210,9 +212,13 @@ mod tests {
     #[test]
     fn settings_default_on_and_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
-        assert!(load_settings(tmp.path()).unwrap().check_module_updates);
-        save_settings(tmp.path(), &AppSettings { check_module_updates: false }).unwrap();
-        assert!(!load_settings(tmp.path()).unwrap().check_module_updates);
+        assert_eq!(load_settings(tmp.path()).unwrap(), AppSettings::default());
+        let custom = AppSettings { check_module_updates: false, close_to_tray: false };
+        save_settings(tmp.path(), &custom).unwrap();
+        assert_eq!(load_settings(tmp.path()).unwrap(), custom);
+        // A file written before a setting existed keeps that setting's default.
+        std::fs::write(settings_path(tmp.path()), r#"{"checkModuleUpdates":false}"#).unwrap();
+        assert!(load_settings(tmp.path()).unwrap().close_to_tray);
         std::fs::write(settings_path(tmp.path()), "{").unwrap();
         assert!(load_settings(tmp.path()).is_err());
     }

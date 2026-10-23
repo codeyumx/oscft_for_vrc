@@ -1,8 +1,11 @@
-# FaceBridge
+# OSCFT for VRC
 
 Eye and face tracking bridge for VRChat. Runs unmodified VRCFaceTracking (VRCFT) tracking modules and sends
 their data to VRChat over OSC. Modules can additionally show user notifications and expose per-module settings
 through the optional `FaceBridge.Sdk`.
+
+Not affiliated with or endorsed by VRChat Inc. FaceBridge is the project's code name: crates, the module SDK, the
+module host, environment variables and the data folder keep that name, so existing installs and modules are unaffected.
 
 Clean-room implementation: written from the specs in `spec/` (VRCFT's public module interface, public docs), not
 from VRCFT source.
@@ -36,16 +39,17 @@ flowchart LR
   end
 ```
 
-## Requirements (Windows)
+## Requirements
 
-- Rust stable, MSVC toolchain (Visual Studio C++ build tools + Windows SDK; Tauri needs MSVC).
+- Rust stable. Windows: MSVC toolchain (Visual Studio C++ build tools + Windows SDK; Tauri needs MSVC). Linux:
+  the Tauri system libraries (WebKitGTK 4.1, GTK 3, libappindicator, librsvg).
 - .NET 10 SDK to build `dotnet/`; .NET 10 runtime to run modules. If the runtime is not installed system-wide, set
   `dotnetRoot` (Settings page, or `config.json`) or the `DOTNET_ROOT` environment variable.
 
 ## Build and run
 
 ```powershell
-# module host (framework-dependent) -> dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe
+# Windows module host (framework-dependent) -> dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe
 powershell -File dotnet/publish.ps1
 
 cargo build -p facebridge          # desktop app: target/debug/facebridge.exe
@@ -56,8 +60,24 @@ facebridge-cli import-vrcft        # copy modules installed for VRCFaceTracking
 facebridge-cli run
 ```
 
+```sh
+# Linux module host (framework-dependent, linux-x64) -> dotnet/artifacts/module-host/FaceBridge.ModuleHost
+dotnet/publish.sh
+
+cargo build -p facebridge          # desktop app: target/debug/facebridge
+cargo build -p facebridge-cli      # headless:   target/debug/facebridge-cli
+```
+
+The publish scripts use `FACEBRIDGE_DOTNET`, then a user-local .NET 10 SDK (`%LOCALAPPDATA%\dotnet10` on Windows,
+`~/.local/share/dotnet10` on Linux), then `dotnet` on `PATH`; `dotnet/global.json` requires SDK 10.0.402 or later.
+
+Installers: `cargo tauri build` in `apps/facebridge/src-tauri` builds the NSIS installer on Windows and a `.deb` plus
+an AppImage on Linux (`target/release/bundle/`). They contain the app only; put the published module host in a
+`module-host/` folder next to the installed executable or point `moduleHost` at it.
+
 The module host is found via `moduleHost` in config, `FACEBRIDGE_MODULE_HOST`, `<exe dir>/module-host/`, then the
-dev output `dotnet/artifacts/module-host/`. Data lives in `%APPDATA%\FaceBridge` (`--data-dir` overrides).
+dev output `dotnet/artifacts/module-host/`. Data lives in `%APPDATA%\FaceBridge` on Windows and
+`~/.config/FaceBridge` on Linux (`--data-dir` overrides).
 
 Tracking settings (calibration, unified correctors, parameter adjustment, data filter; `spec/mutation.md`) apply to
 every frame before it is sent. They are stored in `config.json` (`mutation`), learned calibration in

@@ -178,7 +178,7 @@ export function mountLive(root) {
     h(
       'div',
       { class: 'page' },
-      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Live'), h('p', { class: 'sub' }, 'Output is what FaceBridge sends to VRChat; Raw is the merged module data before the Tracking adjustments.')), h('label', { class: 'live-source' }, h('span', { class: 'muted small' }, 'Show '), sourceSelect)),
+      h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Live'), h('p', { class: 'sub' }, 'Output is what OSCFT sends to VRChat; Raw is the merged module data before the Tracking adjustments.')), h('label', { class: 'live-source' }, h('span', { class: 'muted small' }, 'Show '), sourceSelect)),
       status,
       h('div', { class: 'eyes' }, left.el, right.el),
       h('section', { class: 'card', 'aria-label': 'Head pose' }, h('h2', null, 'Head'), h('dl', { class: 'kv' }, h('dt', null, 'Rotation'), head)),

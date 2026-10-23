@@ -96,6 +96,7 @@
  * @property {string|null} configError  why config.json could not be read
  * @property {boolean} checkModuleUpdates  whether module sources are checked for new releases
  * @property {ModuleUpdate[]} moduleUpdates  installed modules with a newer release (empty while the check is off)
+ * @property {boolean} closeToTray  whether closing the window hides it to the tray instead of quitting
  */
 
 /**

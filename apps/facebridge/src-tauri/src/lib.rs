@@ -1,4 +1,4 @@
-//! FaceBridge desktop shell: owns the `fb_core::Engine`, exposes it to the webview, lives in the tray.
+//! FaceBridge desktop shell: owns the `fb_core::Engine`, exposes it to the webview, optionally lives in the tray.
 
 mod commands;
 mod state;
@@ -13,6 +13,7 @@ use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 use state::Supervisor;
 
+const TRAY_ID: &str = "main";
 const MENU_SHOW: &str = "show";
 const MENU_QUIT: &str = "quit";
 
@@ -25,11 +26,11 @@ fn show_main_window(app: &AppHandle) {
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, MENU_SHOW, "Show FaceBridge", true, None::<&str>)?;
+    let show = MenuItem::with_id(app, MENU_SHOW, "Show OSCFT for VRC", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("FaceBridge")
+    let mut tray = TrayIconBuilder::with_id(TRAY_ID)
+        .tooltip("OSCFT for VRC")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -53,6 +54,18 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     }
     tray.build(app)?;
     Ok(())
+}
+
+/// Adds or removes the tray icon (it only exists while "close to tray" is on).
+pub(crate) fn set_tray_visible(app: &AppHandle, visible: bool) -> tauri::Result<()> {
+    match (visible, app.tray_by_id(TRAY_ID).is_some()) {
+        (true, false) => build_tray(app),
+        (false, true) => {
+            app.remove_tray_by_id(TRAY_ID);
+            Ok(())
+        }
+        _ => Ok(()),
+    }
 }
 
 pub fn run() {
@@ -90,22 +103,25 @@ pub fn run() {
             commands::get_adjust_groups,
             commands::set_osc_config,
             commands::set_check_module_updates,
+            commands::set_close_to_tray,
             commands::set_host_paths,
             commands::restart_engine,
             commands::pick_path,
         ])
         .on_window_event(|window, event| {
-            // Closing the window keeps tracking running in the tray; "Quit" in the tray menu really exits.
+            // With "close to tray" on, closing the window keeps tracking running in the tray and "Quit" in the tray
+            // menu really exits; with it off, closing the window quits.
             if let WindowEvent::CloseRequested { api, .. } = event
                 && window.label() == "main"
+                && window.state::<Arc<Supervisor>>().settings().close_to_tray
             {
                 api.prevent_close();
                 let _ = window.hide();
             }
         })
         .setup(|app| {
-            build_tray(app.handle())?;
             let sup = app.state::<Arc<Supervisor>>();
+            set_tray_visible(app.handle(), sup.settings().close_to_tray)?;
             sup.spawn_live_pusher(app.handle());
             sup.spawn_update_checker(app.handle());
             // The engine starts in the background so the window opens immediately, even if it fails.

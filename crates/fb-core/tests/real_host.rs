@@ -11,21 +11,18 @@ fn root() -> PathBuf {
 }
 
 fn host() -> Option<PathBuf> {
-    let p = root().join("dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe");
+    let p = root().join(format!("dotnet/artifacts/module-host/FaceBridge.ModuleHost{}", std::env::consts::EXE_SUFFIX));
     p.is_file().then_some(p)
 }
 
-/// The machine's .NET 10 runtime location, if `DOTNET_ROOT` is not already set.
+/// The user-local .NET 10 install the publish scripts also use (`%LOCALAPPDATA%\dotnet10`,
+/// `~/.local/share/dotnet10`), if present and `DOTNET_ROOT` is not already set.
 fn dotnet_root() -> Option<PathBuf> {
     if std::env::var_os("DOTNET_ROOT").is_some() {
         return None;
     }
-    let local = dirs_local()?.join("dotnet10");
+    let local = dirs::data_local_dir()?.join("dotnet10");
     local.is_dir().then_some(local)
-}
-
-fn dirs_local() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
 }
 
 fn start(dir: &Path, host: &Path) -> std::sync::Arc<Engine> {
@@ -58,7 +55,7 @@ fn wait_for(engine: &Engine, what: &str, pred: impl Fn(&EngineSnapshot) -> bool)
 #[test]
 fn real_zips_load_in_the_real_host_and_shut_down_cleanly() {
     let Some(host) = host() else {
-        eprintln!("skipped: dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe not built");
+        eprintln!("skipped: dotnet/artifacts/module-host/FaceBridge.ModuleHost not built");
         return;
     };
     let tmp = tempfile::tempdir().unwrap();

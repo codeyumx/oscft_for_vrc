@@ -11,7 +11,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::state::{Phase, Supervisor};
-use crate::updates::{self, AppSettings, ModuleUpdate};
+use crate::updates::ModuleUpdate;
 use crate::view::{AdjustGroupView, FrameView, HostPaths, OscConfigInput, expression_names, image_data_url};
 
 type Sup<'a> = State<'a, Arc<Supervisor>>;
@@ -52,6 +52,8 @@ pub struct AppStateView {
     check_module_updates: bool,
     /// Installed modules with a newer release at their source (empty while the check is off).
     module_updates: Vec<ModuleUpdate>,
+    /// Whether closing the window hides it to the tray (`app-settings.json`).
+    close_to_tray: bool,
 }
 
 /// Reads the persisted config for the Settings page.
@@ -86,6 +88,7 @@ pub async fn get_state(sup: Sup<'_>) -> CmdResult<AppStateView> {
             config_error,
             check_module_updates: sup.updates.enabled(),
             module_updates,
+            close_to_tray: sup.settings().close_to_tray,
         })
     })
     .await
@@ -271,10 +274,21 @@ pub async fn set_osc_config(sup: Sup<'_>, osc: OscConfigInput) -> CmdResult<()> 
 pub async fn set_check_module_updates(sup: Sup<'_>, enabled: bool) -> CmdResult<()> {
     let sup = Arc::clone(sup.inner());
     blocking(move || {
-        updates::save_settings(&sup.data_dir, &AppSettings { check_module_updates: enabled }).map_err(|e| format!("{e:#}"))?;
+        sup.update_settings(|s| s.check_module_updates = enabled).map_err(|e| format!("{e:#}"))?;
         sup.updates.set_enabled(enabled);
         sup.wake_update_checker();
         Ok(())
+    })
+    .await
+}
+
+/// Chooses whether closing the window hides it to a tray icon or quits, and shows or removes the tray icon to match.
+#[tauri::command]
+pub async fn set_close_to_tray(app: AppHandle, sup: Sup<'_>, enabled: bool) -> CmdResult<()> {
+    let sup = Arc::clone(sup.inner());
+    blocking(move || {
+        sup.update_settings(|s| s.close_to_tray = enabled).map_err(|e| format!("{e:#}"))?;
+        crate::set_tray_visible(&app, enabled).map_err(|e| format!("tray icon: {e}"))
     })
     .await
 }

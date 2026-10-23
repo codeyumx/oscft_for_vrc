@@ -114,8 +114,8 @@ function createCard(id) {
   });
   const builtin = h(
     'section',
-    { class: 'settings-part', 'aria-label': 'FaceBridge options' },
-    h('h3', null, 'FaceBridge options'),
+    { class: 'settings-part', 'aria-label': 'OSCFT options' },
+    h('h3', null, 'OSCFT options'),
     ...optionInputs.map(({ option, input, number }) =>
       h(
         'div',
@@ -308,10 +308,32 @@ function createCard(id) {
  * @returns {import('../main.js').PageHandle}
  */
 export function mountModules(root) {
-  const installZip = h('button', { type: 'button', class: 'primary' }, 'Install from .zip\u2026');
-  const installFolder = h('button', { type: 'button' }, 'Install from folder\u2026');
-  const importVrcft = h('button', { type: 'button' }, 'Import from VRCFaceTracking');
-  const restart = h('button', { type: 'button' }, 'Restart modules');
+  const installZip = h('button', { type: 'button', role: 'menuitem' }, 'Install from VRCFT module .zip\u2026');
+  const installFolder = h('button', { type: 'button', role: 'menuitem' }, 'Install from folder\u2026');
+  const importVrcft = h('button', { type: 'button', role: 'menuitem' }, 'Import from VRCFaceTracking');
+  const installMenu = h('div', { class: 'menu', role: 'menu', hidden: true }, installZip, installFolder, importVrcft);
+  const install = h('button', { type: 'button', class: 'primary', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, 'Install \u25BE');
+  const installDropdown = h('div', { class: 'dropdown' }, install, installMenu);
+  /** @param {boolean} open */
+  const setMenuOpen = (open) => {
+    installMenu.hidden = !open;
+    install.setAttribute('aria-expanded', String(open));
+    if (open) installZip.focus();
+  };
+  install.addEventListener('click', () => setMenuOpen(installMenu.hidden));
+  // Choosing an item, clicking elsewhere or pressing Escape closes the menu.
+  installMenu.addEventListener('click', () => setMenuOpen(false));
+  const onDocClick = (/** @type {MouseEvent} */ e) => {
+    if (!installDropdown.contains(/** @type {Node} */ (e.target))) setMenuOpen(false);
+  };
+  document.addEventListener('click', onDocClick);
+  installDropdown.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !installMenu.hidden) {
+      setMenuOpen(false);
+      install.focus();
+    }
+  });
+  const restart = h('button', { type: 'button', class: 'primary' }, '\u21BB Restart modules');
   const notice = h('div', { class: 'banner warning', role: 'status', hidden: true });
   const list = h('div', { class: 'banner-list', 'aria-live': 'off' });
   const empty = h('div', { class: 'empty', hidden: true }, 'No modules installed. Install a module .zip, or import the modules you already use in VRCFaceTracking.');
@@ -346,8 +368,8 @@ export function mountModules(root) {
       h(
         'div',
         { class: 'page-head' },
-        h('div', null, h('h1', null, 'Modules'), h('p', { class: 'sub' }, 'Modules earlier in the list claim eye and face data first; later modules only get what is left.')),
-        h('div', { class: 'toolbar' }, installZip, installFolder, importVrcft, restart),
+        h('div', null, h('div', { class: 'title-row' }, h('h1', null, 'Modules'), installDropdown), h('p', { class: 'sub' }, 'Modules try to connect in the order they are listed.')),
+        restart,
       ),
       notice,
       list,
@@ -360,7 +382,8 @@ export function mountModules(root) {
 
   function update() {
     const engineUp = state.phase === 'running' && state.snapshot !== null;
-    for (const b of [installZip, installFolder, importVrcft, restart]) b.disabled = !engineUp;
+    for (const b of [install, installZip, installFolder, importVrcft, restart]) b.disabled = !engineUp;
+    if (!engineUp) setMenuOpen(false);
     notice.hidden = engineUp;
     notice.textContent = state.phase === 'starting' ? 'The engine is starting\u2026' : 'The engine is not running, so modules cannot be managed. See the Home page.';
 
@@ -386,5 +409,5 @@ export function mountModules(root) {
     empty.hidden = modules.length > 0;
   }
 
-  return { update };
+  return { update, destroy: () => document.removeEventListener('click', onDocClick) };
 }

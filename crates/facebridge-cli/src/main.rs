@@ -11,7 +11,8 @@ use std::path::PathBuf;
 #[derive(Parser)]
 #[command(name = "facebridge-cli", version, about = "Run VRChat face tracking modules without the UI")]
 struct Cli {
-    /// Data directory (config, installed modules, module settings). Default: %APPDATA%\FaceBridge.
+    /// Data directory (config, installed modules, module settings). Default: %APPDATA%\FaceBridge on Windows,
+    /// ~/.config/FaceBridge on Linux.
     #[arg(long, global = true, value_name = "DIR")]
     data_dir: Option<PathBuf>,
     #[command(subcommand)]

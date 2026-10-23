@@ -16,7 +16,8 @@ internal static class TestPaths
     public static string ProjectOutput(string project) =>
         Path.Combine(Meta("BinRoot"), project, Meta("ConfigurationFolder"));
 
-    public static string ModuleHostExe => Path.Combine(ProjectOutput("FaceBridge.ModuleHost"), "FaceBridge.ModuleHost.exe");
+    public static string ModuleHostExe =>
+        Path.Combine(ProjectOutput("FaceBridge.ModuleHost"), OperatingSystem.IsWindows() ? "FaceBridge.ModuleHost.exe" : "FaceBridge.ModuleHost");
 
     /// <summary>Directory of the installed .NET runtime this test process runs on (what DOTNET_ROOT must point at).</summary>
     public static string DotnetRoot =>
