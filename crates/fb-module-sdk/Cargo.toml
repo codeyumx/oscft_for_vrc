@@ -1,0 +1,16 @@
+[package]
+name = "fb-module-sdk"
+description = "SDK for native OSCFT modules: a Rust program speaking the module IPC protocol (spec/native-modules.md)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fb-protocol = { path = "../fb-protocol" }
+fb-tracking = { path = "../fb-tracking" }
+serde_json = "1"

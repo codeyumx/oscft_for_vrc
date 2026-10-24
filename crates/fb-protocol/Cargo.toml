@@ -1,6 +1,6 @@
 [package]
 name = "fb-protocol"
-description = "Wire protocol between the FaceBridge host and the .NET module host (spec/ipc-protocol.md)"
+description = "Wire protocol between the FaceBridge host and module processes (.NET module host or native modules; spec/ipc-protocol.md)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

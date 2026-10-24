@@ -120,18 +120,22 @@ pub struct LogEntry { pub time_ms: u64, pub module_id: Option<String>, pub level
 <data_dir>/config.json
 <data_dir>/modules/<id>/            module files as shipped + module.json (VRCFT TrackingModuleMetadata format:
                                     ModuleId, ModuleName, Version, AuthorName, ModuleDescription, UsageInstructions,
-                                    ModulePageUrl, DownloadUrl, DllFileName, ...); id = ModuleId GUID, or a new UUID for local zips
+                                    ModulePageUrl, DownloadUrl, DllFileName, ...; native modules: Executable instead of
+                                    DllFileName, spec/native-modules.md); id = ModuleId GUID, or a new UUID for local zips
 <data_dir>/module-data/<id>/        writable data dir passed as --data-dir; settings.json = current values (without `text` fields)
 ```
 
-Zip install: extract to a temp dir; DLL = `module.json` `DllFileName` when present, otherwise run
+Zip install: extract to a temp dir. Native module (`module.json` `Executable`): the executable must exist and is
+marked executable on Unix; no probe. .NET module: DLL = `module.json` `DllFileName` when present, otherwise run
 `FaceBridge.ModuleHost --probe <dir>` (stdout JSON `{"modules":[{"dll":"X.dll","type":"Ns.Type"}]}`) and take
 the single hit (error if none or several). Zip-slip safe.
 
-### Module host discovery (when `module_host` is None)
+### Module host discovery (when `module_host` is None; only for .NET modules)
 
 1. `FACEBRIDGE_MODULE_HOST` env var; 2. `<exe dir>/module-host/FaceBridge.ModuleHost.exe`;
-3. dev fallback: `<workspace>/dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe` (what `dotnet/publish.ps1` produces).
+3. the host bundled into the binary, when it was built with `FACEBRIDGE_BUNDLED_HOST_ZIP=<module-host-<rid>.zip>`:
+extracted once to `<data_dir>/bundled-module-host/<hash of the zip>/module-host/` (staged, then renamed into place);
+4. dev fallback: `<workspace>/dotnet/artifacts/module-host/FaceBridge.ModuleHost.exe` (what `dotnet/publish.ps1` produces).
 
 ### Claim arbitration
 

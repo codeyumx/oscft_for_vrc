@@ -1,4 +1,4 @@
-//! Locating `FaceBridge.ModuleHost`, launching it, and `--probe` mode.
+//! Locating `FaceBridge.ModuleHost` (the .NET host for VRCFT modules), launching module processes, and `--probe`.
 
 use crate::store::ProbeHit;
 use anyhow::{Context, Result, bail};
@@ -16,9 +16,10 @@ const HOST_EXE: &str = if cfg!(windows) { "FaceBridge.ModuleHost.exe" } else { "
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Resolves the module host executable: explicit config path, `FACEBRIDGE_MODULE_HOST`,
-/// `<exe dir>/module-host/`, then the dev build output `dotnet/artifacts/module-host/`.
-pub fn discover_module_host(configured: Option<&Path>) -> Result<PathBuf> {
+/// Resolves the module host executable, in order: the configured path (`moduleHost` in config.json),
+/// `FACEBRIDGE_MODULE_HOST`, `<exe dir>/module-host/`, the host bundled into this binary (extracted under
+/// `data_dir`), then the dev build output `dotnet/artifacts/module-host/`.
+pub fn discover_module_host(configured: Option<&Path>, data_dir: &Path) -> Result<PathBuf> {
     if let Some(p) = configured {
         if p.is_file() {
             return Ok(p.to_owned());
@@ -35,19 +36,67 @@ pub fn discover_module_host(configured: Option<&Path>) -> Result<PathBuf> {
             candidates.push(dir.join("module-host").join(HOST_EXE));
         }
     }
-    candidates.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dotnet/artifacts/module-host").join(HOST_EXE));
     for c in candidates {
         if c.is_file() {
             return Ok(c);
         }
         tried.push(c.display().to_string());
     }
+    if let Some(exe) = extract_bundled_host(data_dir)? {
+        return Ok(exe);
+    }
+    let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../dotnet/artifacts/module-host").join(HOST_EXE);
+    if dev.is_file() {
+        return Ok(dev);
+    }
+    tried.push(dev.display().to_string());
     bail!("FaceBridge.ModuleHost not found (set {HOST_ENV_VAR} or module_host in config; looked in: {})", tried.join(", "))
 }
 
-/// Base command for the module host with the environment every launch needs.
-pub(crate) fn host_command(host: &Path, dotnet_root: Option<&Path>) -> Command {
-    let mut cmd = Command::new(host);
+/// Extracts the module host bundled into this binary to `<data_dir>/bundled-module-host/<id>/` (`<id>` is a hash of
+/// the zip, so each host build gets its own copy) and returns its executable. `None` when no host is bundled.
+#[cfg(bundled_host)]
+fn extract_bundled_host(data_dir: &Path) -> Result<Option<PathBuf>> {
+    const ZIP: &[u8] = include_bytes!(env!("FACEBRIDGE_BUNDLED_HOST_ZIP"));
+    const ID: &str = env!("FACEBRIDGE_BUNDLED_HOST_ID");
+    let root = data_dir.join("bundled-module-host");
+    let installed = root.join(ID);
+    let exe = installed.join("module-host").join(HOST_EXE);
+    if exe.is_file() {
+        return Ok(Some(exe));
+    }
+    // Extract beside the final folder and rename it into place, so a partial extraction is never used.
+    let staging = root.join(format!(".{ID}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&staging);
+    crate::store::extract_zip(std::io::Cursor::new(ZIP), &staging).context("extracting the bundled module host")?;
+    let staged_exe = staging.join("module-host").join(HOST_EXE);
+    if !staged_exe.is_file() {
+        let _ = std::fs::remove_dir_all(&staging);
+        bail!("bundled module host zip has no module-host/{HOST_EXE}");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&staged_exe, std::fs::Permissions::from_mode(0o755))?;
+    }
+    if let Err(e) = std::fs::rename(&staging, &installed) {
+        let _ = std::fs::remove_dir_all(&staging);
+        if !exe.is_file() {
+            return Err(e).with_context(|| format!("installing the bundled module host in {}", installed.display()));
+        }
+    }
+    Ok(Some(exe))
+}
+
+#[cfg(not(bundled_host))]
+fn extract_bundled_host(_data_dir: &Path) -> Result<Option<PathBuf>> {
+    Ok(None)
+}
+
+/// Base command for a module process (the .NET module host or a native module) with the environment every launch
+/// needs. `dotnet_root` only matters for the .NET host.
+pub(crate) fn child_command(program: &Path, dotnet_root: Option<&Path>) -> Command {
+    let mut cmd = Command::new(program);
     if let Some(root) = dotnet_root {
         cmd.env("DOTNET_ROOT", root);
     }
@@ -84,7 +133,7 @@ pub(crate) fn parse_probe_output(stdout: &str) -> Result<Vec<ProbeHit>> {
 
 /// Runs `FaceBridge.ModuleHost --probe <dir>` (30 s limit) and returns the modules it found.
 pub fn probe_modules(host: &Path, dotnet_root: Option<&Path>, dir: &Path) -> Result<Vec<ProbeHit>> {
-    let mut child = host_command(host, dotnet_root)
+    let mut child = child_command(host, dotnet_root)
         .arg("--probe")
         .arg(dir)
         .stdin(Stdio::null())
@@ -142,10 +191,19 @@ mod tests {
 
     #[test]
     fn configured_host_must_exist() {
-        assert!(discover_module_host(Some(Path::new("Z:/definitely/not/here.exe"))).is_err());
         let dir = tempfile::tempdir().unwrap();
+        assert!(discover_module_host(Some(Path::new("Z:/definitely/not/here.exe")), dir.path()).is_err());
         let f = dir.path().join("host.exe");
         std::fs::write(&f, b"").unwrap();
-        assert_eq!(discover_module_host(Some(&f)).unwrap(), f);
+        assert_eq!(discover_module_host(Some(&f), dir.path()).unwrap(), f);
+    }
+
+    #[cfg(bundled_host)]
+    #[test]
+    fn bundled_host_is_extracted_once_and_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = discover_module_host(None, dir.path()).unwrap();
+        assert!(first.starts_with(dir.path()) && first.is_file());
+        assert_eq!(discover_module_host(None, dir.path()).unwrap(), first);
     }
 }

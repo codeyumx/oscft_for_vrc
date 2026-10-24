@@ -14,7 +14,8 @@ from VRCFT source.
 
 ```
 crates/fb-tracking     unified tracking data model (88 expression shapes, eyes, head)
-crates/fb-protocol     Rust side of the module host IPC protocol (spec/ipc-protocol.md)
+crates/fb-protocol     Rust side of the module IPC protocol (spec/ipc-protocol.md)
+crates/fb-module-sdk   SDK for native (Rust, OSCFT-only) modules + example (spec/native-modules.md)
 crates/fb-osc          OSC encoding, VRChat parameter mapping, avatar discovery (config files + OSCQuery)
 crates/fb-mutate       tracking mutation: calibration, unified correctors, parameter adjustment, One Euro filter
 crates/fb-core         engine: module install/storage, processes, claim arbitration, merge, notifications, settings
@@ -22,7 +23,7 @@ crates/facebridge-cli  headless CLI
 apps/facebridge        Tauri v2 desktop app (src-tauri/ + static ui/, no Node)
 dotnet/                VRCFaceTracking.SDK / VRCFaceTracking.Core compat assemblies, FaceBridge.Sdk,
                        FaceBridge.ModuleHost (one process per module), tests
-spec/                  contracts: module-api, ipc-protocol, engine-api, osc-output, mutation
+spec/                  contracts: module-api, ipc-protocol, native-modules, engine-api, osc-output, mutation
 test-modules/          real VRCFT module zips used by tests
 ```
 
@@ -34,8 +35,12 @@ flowchart LR
     VRChat -->|OSCQuery / avatar change| OSC
   end
   Engine <-->|loopback TCP, spec/ipc-protocol.md| Host
-  subgraph "per module (.NET 10)"
+  Engine <-->|loopback TCP, spec/ipc-protocol.md| Native
+  subgraph "per .NET (VRCFT) module (.NET 10)"
     Host[FaceBridge.ModuleHost] --> Compat[VRCFaceTracking.* compat] --> Module[module DLL]
+  end
+  subgraph "per native module"
+    Native[module executable, fb-module-sdk]
   end
 ```
 
@@ -43,8 +48,9 @@ flowchart LR
 
 - Rust stable. Windows: MSVC toolchain (Visual Studio C++ build tools + Windows SDK; Tauri needs MSVC). Linux:
   the Tauri system libraries (WebKitGTK 4.1, GTK 3, libappindicator, librsvg).
-- .NET 10 SDK to build `dotnet/`; .NET 10 runtime to run modules. If the runtime is not installed system-wide, set
-  `dotnetRoot` (Settings page, or `config.json`) or the `DOTNET_ROOT` environment variable.
+- .NET 10 SDK to build `dotnet/`; .NET 10 runtime to run .NET (VRCFT) modules. If the runtime is not installed
+  system-wide, set `dotnetRoot` (Settings page, or `config.json`) or the `DOTNET_ROOT` environment variable. Native
+  modules need neither: with only native modules installed the module host is never extracted or started.
 
 ## Build and run
 
@@ -71,13 +77,25 @@ cargo build -p facebridge-cli      # headless:   target/debug/facebridge-cli
 The publish scripts use `FACEBRIDGE_DOTNET`, then a user-local .NET 10 SDK (`%LOCALAPPDATA%\dotnet10` on Windows,
 `~/.local/share/dotnet10` on Linux), then `dotnet` on `PATH`; `dotnet/global.json` requires SDK 10.0.402 or later.
 
-Installers: `cargo tauri build` in `apps/facebridge/src-tauri` builds the NSIS installer on Windows and a `.deb` plus
-an AppImage on Linux (`target/release/bundle/`). They contain the app only; put the published module host in a
-`module-host/` folder next to the installed executable or point `moduleHost` at it.
+Release assets: `scripts/release.sh` (Linux, with `cargo-xwin` for the Windows build) writes to `dist/`:
 
-The module host is found via `moduleHost` in config, `FACEBRIDGE_MODULE_HOST`, `<exe dir>/module-host/`, then the
-dev output `dotnet/artifacts/module-host/`. Data lives in `%APPDATA%\FaceBridge` on Windows and
-`~/.config/FaceBridge` on Linux (`--data-dir` overrides).
+| File | Contents |
+| --- | --- |
+| `OSCFT-for-VRC-<version>-windows-x64.exe`, `OSCFT-for-VRC-<version>-linux-x64` | app with the module host built in (the download for most people) |
+| `OSCFT-for-VRC-<version>-windows-x64-no-module-host.exe`, `...-linux-x64-no-module-host` | app only |
+| `module-host-win-x64.zip`, `module-host-linux-x64.zip` | the module host alone (for the app-only builds or a custom host) |
+
+The host is built in by setting `FACEBRIDGE_BUNDLED_HOST_ZIP` to a `module-host-<rid>.zip` while compiling; the app
+extracts it to `<data folder>/bundled-module-host/` the first time a module runs. `dotnet/publish.sh Release win-x64`
+cross-publishes the Windows host.
+
+Installers: `cargo tauri build` in `apps/facebridge/src-tauri` builds the NSIS installer on Windows and a `.deb` plus
+an AppImage on Linux (`target/release/bundle/`). Without `FACEBRIDGE_BUNDLED_HOST_ZIP` they contain the app only; put
+the published module host in a `module-host/` folder next to the installed executable or point `moduleHost` at it.
+
+The module host is found via `moduleHost` in config, `FACEBRIDGE_MODULE_HOST`, `<exe dir>/module-host/`, the
+built-in host, then the dev output `dotnet/artifacts/module-host/`. Data lives in `%APPDATA%\FaceBridge` on Windows
+and `~/.config/FaceBridge` on Linux (`--data-dir` overrides).
 
 Tracking settings (calibration, unified correctors, parameter adjustment, data filter; `spec/mutation.md`) apply to
 every frame before it is sent. They are stored in `config.json` (`mutation`), learned calibration in
@@ -184,6 +202,15 @@ UserNotifications.Clear("no-headset");
 
 To get update notices, publish GitHub releases tagged with the version (`v1.2.0` or `1.2.0`) and set `DownloadUrl`
 or `ModulePageUrl` in `module.json` to the repository.
+
+## Module authors: native modules (Rust)
+
+A native module is its own program instead of a DLL: `module.json` names it with `"Executable": "my_module"`
+(on Windows `my_module.exe` is preferred when present) and the program speaks the IPC protocol through
+`crates/fb-module-sdk`. It sends the same Unified Expressions frames, settings forms and notifications as a .NET
+module, but runs only in OSCFT, not in VRCFaceTracking. Spec: `spec/native-modules.md`; example:
+`crates/fb-module-sdk/examples/demo_module.rs`
+(`cargo build --release -p fb-module-sdk --example demo_module`).
 
 ## License
 

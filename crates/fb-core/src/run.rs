@@ -1,10 +1,11 @@
 //! One module host process: spawn, handshake, arbitration, frame pump, teardown.
 
 use crate::engine::{Inner, TEARDOWN_TIMEOUT, apply_settings, lock};
-use crate::host::{discover_module_host, host_command};
+use crate::host::{child_command, discover_module_host};
 use crate::merge::{LiveCheck, RunKey};
 use crate::process::{assign_to_job, pump_lines};
 use crate::settings::Schema;
+use crate::store;
 use crate::types::{EngineEvent, ModuleRunState};
 use fb_osc::Claims;
 use fb_protocol::{ChildMessage, HostMessage, PROTOCOL_VERSION, ProtocolError, read_child_message, write_host_message};
@@ -339,16 +340,35 @@ fn drive(
     signal: &mut StartupSignal,
 ) -> Result<End, String> {
     // --- spawn -----------------------------------------------------------------------------------------------
-    let host = discover_module_host(host_cfg).map_err(|e| format!("{e:#}"))?;
-    let dll_name = lock(&inner.state)
+    let (executable, dll_name) = lock(&inner.state)
         .modules
         .get(id)
-        .and_then(|m| m.meta.dll_file_name.clone())
-        .ok_or("module.json has no DllFileName")?;
-    let dll = inner.paths.module_dir(id).join(&dll_name);
-    if !dll.is_file() {
-        return Err(format!("module DLL {dll_name} is missing"));
-    }
+        .map(|m| (m.meta.executable.clone(), m.meta.dll_file_name.clone()))
+        .unwrap_or_default();
+    let module_dir = inner.paths.module_dir(id);
+    // A native module is its own program; only .NET modules need (and start) the module host.
+    let (program, mut cmd) = match (executable, dll_name) {
+        (Some(exe), _) => {
+            let path = store::native_executable(&module_dir, &exe);
+            if !path.is_file() {
+                return Err(format!("module executable {exe} is missing"));
+            }
+            let mut cmd = child_command(&path, None);
+            cmd.current_dir(&module_dir);
+            (path, cmd)
+        }
+        (None, Some(dll_name)) => {
+            let dll = module_dir.join(&dll_name);
+            if !dll.is_file() {
+                return Err(format!("module DLL {dll_name} is missing"));
+            }
+            let host = discover_module_host(host_cfg, &inner.paths.data_dir).map_err(|e| format!("{e:#}"))?;
+            let mut cmd = child_command(&host, dotnet_root);
+            cmd.arg("--module").arg(&dll);
+            (host, cmd)
+        }
+        (None, None) => return Err("module.json has neither Executable nor DllFileName".into()),
+    };
     let data_dir = inner.paths.module_data_dir(id);
     std::fs::create_dir_all(&data_dir).map_err(|e| format!("cannot create {}: {e}", data_dir.display()))?;
 
@@ -356,13 +376,11 @@ fn drive(
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let token = Uuid::new_v4().simple().to_string();
 
-    let mut child = host_command(&host, dotnet_root)
+    let mut child = cmd
         .arg("--connect")
         .arg(format!("127.0.0.1:{port}"))
         .arg("--token")
         .arg(&token)
-        .arg("--module")
-        .arg(&dll)
         .arg("--data-dir")
         .arg(&data_dir)
         .arg("--parent-pid")
@@ -372,7 +390,7 @@ fn drive(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", host.display()))?;
+        .map_err(|e| format!("cannot start {}: {e}", program.display()))?;
     if let Err(e) = assign_to_job(&child) {
         inner.log(Some(id), "warning", "engine", format!("Could not add the module host to the kill-on-close job: {e}"));
     }

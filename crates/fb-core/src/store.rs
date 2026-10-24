@@ -20,7 +20,8 @@ pub struct ProbeHit {
     pub type_name: String,
 }
 
-/// Fields of a VRCFT `module.json` (`TrackingModuleMetadata`) that the engine uses. Lenient: missing or
+/// Fields of a `module.json` that the engine uses: VRCFT's `TrackingModuleMetadata` plus `Executable`, which marks
+/// a native module (an OSCFT-only program speaking the IPC protocol itself, no .NET host). Lenient: missing or
 /// mistyped fields are `None`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModuleMeta {
@@ -33,6 +34,7 @@ pub struct ModuleMeta {
     pub module_page_url: Option<String>,
     pub download_url: Option<String>,
     pub dll_file_name: Option<String>,
+    pub executable: Option<String>,
 }
 
 impl ModuleMeta {
@@ -48,6 +50,7 @@ impl ModuleMeta {
             module_page_url: s("ModulePageUrl"),
             download_url: s("DownloadUrl"),
             dll_file_name: s("DllFileName"),
+            executable: s("Executable"),
         }
     }
 
@@ -64,6 +67,22 @@ impl ModuleMeta {
     pub fn source_repo(&self) -> Option<String> {
         [&self.download_url, &self.module_page_url].into_iter().flatten().find_map(|u| github_repo(u))
     }
+}
+
+/// The program file of a native module whose `module.json` says `"Executable": name`. On Windows `<name>.exe` is
+/// preferred when it exists, so one module folder can carry both a Linux `name` and a Windows `name.exe`.
+pub fn native_executable(module_dir: &Path, name: &str) -> PathBuf {
+    if cfg!(windows) && Path::new(name).extension().is_none() {
+        let exe = module_dir.join(format!("{name}.exe"));
+        if exe.is_file() {
+            return exe;
+        }
+    }
+    module_dir.join(name)
+}
+
+fn is_plain_file_name(name: &str) -> bool {
+    !name.contains(['/', '\\']) && name != ".." && name != "."
 }
 
 /// `owner/repo` from any `https://github.com/<owner>/<repo>[.git][/...]` URL.
@@ -99,7 +118,8 @@ impl Drop for Staged {
 }
 
 /// Copies/extracts `src` (a `.zip` file or a folder) into a staging dir and works out the module: the root
-/// folder, the DLL (`module.json` `DllFileName`, else `probe`), the id, and a complete `module.json`.
+/// folder, what runs it (`module.json` `Executable` for a native module, else the DLL from `DllFileName` or
+/// `probe`), the id, and a complete `module.json`. `probe` is never called for native modules.
 pub fn stage(paths: &Paths, src: &Path, probe: &dyn Fn(&Path) -> Result<Vec<ProbeHit>>) -> Result<Staged> {
     let staging = paths.staging_dir().join(Uuid::new_v4().simple().to_string());
     let content = staging.join("content");
@@ -125,9 +145,29 @@ pub fn stage(paths: &Paths, src: &Path, probe: &dyn Fn(&Path) -> Result<Vec<Prob
     };
     let meta = existing.as_ref().map(ModuleMeta::from_value).unwrap_or_default();
 
-    let dll = match &meta.dll_file_name {
-        Some(name) => {
-            if name.contains(['/', '\\']) || name == ".." || name == "." {
+    let program = match (&meta.executable, &meta.dll_file_name) {
+        (Some(_), Some(_)) => {
+            bail!("module.json sets both Executable and DllFileName; a module is either native or a .NET DLL")
+        }
+        (Some(name), None) => {
+            if !is_plain_file_name(name) {
+                bail!("module.json Executable \"{name}\" is not a plain file name");
+            }
+            let exe = native_executable(&root, name);
+            if !exe.is_file() {
+                bail!("module.json names executable \"{name}\" but the module contains no such file");
+            }
+            // Zips do not keep the executable bit.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&exe, fs::Permissions::from_mode(0o755))
+                    .with_context(|| format!("marking {} executable", exe.display()))?;
+            }
+            name.clone()
+        }
+        (None, Some(name)) => {
+            if !is_plain_file_name(name) {
                 bail!("module.json DllFileName \"{name}\" is not a plain file name");
             }
             if !root.join(name).is_file() {
@@ -135,7 +175,7 @@ pub fn stage(paths: &Paths, src: &Path, probe: &dyn Fn(&Path) -> Result<Vec<Prob
             }
             name.clone()
         }
-        None => {
+        (None, None) => {
             let hits = probe(&root).context("module has no module.json DllFileName and probing failed")?;
             match hits.as_slice() {
                 [] => bail!("no VRCFaceTracking module found in the DLLs"),
@@ -172,9 +212,11 @@ pub fn stage(paths: &Paths, src: &Path, probe: &dyn Fn(&Path) -> Result<Vec<Prob
     };
     let before = obj.clone();
     obj.insert("ModuleId".into(), Value::String(id.clone()));
-    obj.insert("DllFileName".into(), Value::String(dll.clone()));
+    if meta.executable.is_none() {
+        obj.insert("DllFileName".into(), Value::String(program.clone()));
+    }
     if meta.module_name.is_none() {
-        let stem = Path::new(&dll).file_stem().and_then(|s| s.to_str()).unwrap_or(&dll).to_owned();
+        let stem = Path::new(&program).file_stem().and_then(|s| s.to_str()).unwrap_or(&program).to_owned();
         obj.insert("ModuleName".into(), Value::String(stem));
     }
     if obj != before || !json_path.is_file() {
@@ -289,8 +331,8 @@ fn safe_entry_path(dest: &Path, name: &str) -> Result<PathBuf> {
     Ok(out)
 }
 
-fn extract_zip(file: fs::File, dest: &Path) -> Result<()> {
-    let mut archive = zip::ZipArchive::new(file).context("not a valid zip archive")?;
+pub(crate) fn extract_zip<R: Read + io::Seek>(reader: R, dest: &Path) -> Result<()> {
+    let mut archive = zip::ZipArchive::new(reader).context("not a valid zip archive")?;
     if archive.len() > MAX_ZIP_ENTRIES {
         bail!("archive has too many entries");
     }
@@ -414,6 +456,46 @@ mod tests {
         assert!(format!("{err:#}").contains("several modules"), "{err:#}");
         let failing = |_: &Path| -> Result<Vec<ProbeHit>> { bail!("host missing") };
         assert!(stage(&p, &zip, &failing).is_err());
+    }
+
+    #[test]
+    fn native_module_installs_without_probing_and_becomes_executable() {
+        let tmp = tempfile::tempdir().unwrap();
+        let zip = tmp.path().join("m.zip");
+        let json = r#"{"ModuleId":"8f0c7a52-1d1e-4a57-9a39-0f4a3b2c1d00","Executable":"demo"}"#;
+        make_zip(&zip, &[("module.json", json.as_bytes()), ("demo", b"\x7fELF"), ("demo.exe", b"MZ")]);
+        let p = paths(&tmp.path().join("data"));
+        let staged = stage(&p, &zip, &no_probe).unwrap();
+        assert_eq!(staged.meta.executable.as_deref(), Some("demo"));
+        assert_eq!(staged.meta.dll_file_name, None, "a native module must not get a DllFileName");
+        assert_eq!(staged.meta.module_name.as_deref(), Some("demo"));
+        let id = staged.id.clone();
+        commit(&p, staged).unwrap();
+        let exe = native_executable(&p.module_dir(&id), "demo");
+        assert_eq!(exe.file_name().unwrap(), if cfg!(windows) { "demo.exe" } else { "demo" });
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(fs::metadata(&exe).unwrap().permissions().mode() & 0o111, 0o111);
+        }
+    }
+
+    #[test]
+    fn native_module_json_is_validated() {
+        let tmp = tempfile::tempdir().unwrap();
+        let p = paths(&tmp.path().join("data"));
+        let zip = tmp.path().join("m.zip");
+        for (json, files, expected) in [
+            (r#"{"Executable":"demo","DllFileName":"Thing.dll"}"#, &[("demo", &b"x"[..]), ("Thing.dll", b"MZ")][..], "both"),
+            (r#"{"Executable":"missing"}"#, &[("demo", &b"x"[..])][..], "no such file"),
+            (r#"{"Executable":"../demo"}"#, &[("demo", &b"x"[..])][..], "plain file name"),
+        ] {
+            let mut entries = vec![("module.json", json.as_bytes())];
+            entries.extend_from_slice(files);
+            make_zip(&zip, &entries);
+            let err = stage(&p, &zip, &no_probe).err().unwrap_or_else(|| panic!("{json} accepted"));
+            assert!(format!("{err:#}").contains(expected), "{json}: {err:#}");
+        }
     }
 
     #[test]

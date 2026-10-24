@@ -101,10 +101,12 @@ impl ModuleRt {
         let dir = paths.module_dir(id);
         match ModuleMeta::read(&dir) {
             Ok(meta) => {
-                match meta.dll_file_name.as_deref() {
-                    Some(dll) if dir.join(dll).is_file() => {}
-                    Some(dll) => rt.fail_load(format!("module DLL {dll} is missing")),
-                    None => rt.fail_load("module.json has no DllFileName".into()),
+                match (meta.executable.as_deref(), meta.dll_file_name.as_deref()) {
+                    (Some(exe), _) if store::native_executable(&dir, exe).is_file() => {}
+                    (Some(exe), _) => rt.fail_load(format!("module executable {exe} is missing")),
+                    (None, Some(dll)) if dir.join(dll).is_file() => {}
+                    (None, Some(dll)) => rt.fail_load(format!("module DLL {dll} is missing")),
+                    (None, None) => rt.fail_load("module.json has neither Executable nor DllFileName".into()),
                 }
                 rt.meta = meta;
             }
@@ -500,7 +502,7 @@ impl Engine {
             (st.config.module_host.clone(), st.config.dotnet_root.clone())
         };
         let probe = |dir: &Path| {
-            let host = discover_module_host(host_cfg.as_deref())?;
+            let host = discover_module_host(host_cfg.as_deref(), &inner.paths.data_dir)?;
             probe_modules(&host, dotnet_root.as_deref(), dir)
         };
         let staged = store::stage(&inner.paths, path, &probe)?;

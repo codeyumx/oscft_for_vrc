@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
-# Publishes the FaceBridge module host (framework-dependent, linux-x64) to dotnet/artifacts/module-host/.
-# Linux counterpart of publish.ps1: same output layout, FaceBridge.ModuleHost (no extension) plus the
-# VRCFaceTracking.Core / VRCFaceTracking.SDK compat assemblies and FaceBridge.Sdk.dll next to it.
+# Publishes the FaceBridge module host (framework-dependent) to dotnet/artifacts/module-host/.
+# Linux counterpart of publish.ps1: same output layout, FaceBridge.ModuleHost (FaceBridge.ModuleHost.exe for win-*)
+# plus the VRCFaceTracking.Core / VRCFaceTracking.SDK compat assemblies and FaceBridge.Sdk.dll next to it.
 # The target machine needs the .NET 10 runtime (DOTNET_ROOT must point at it without a system-wide install).
 #
 # dotnet: $FACEBRIDGE_DOTNET, then the .NET 10 SDK under ${XDG_DATA_HOME:-~/.local/share}/dotnet10, then `dotnet`
-# on PATH. Configuration: first argument, default Release.
+# on PATH. Arguments: configuration (default Release), runtime identifier (default linux-x64; win-x64 cross-publishes
+# the Windows host).
 set -euo pipefail
 
 configuration="${1:-Release}"
+rid="${2:-linux-x64}"
 
 dotnet="${FACEBRIDGE_DOTNET:-}"
 if [[ -z "$dotnet" ]]; then
@@ -24,14 +26,15 @@ rm -rf "$out"
 
 "$dotnet" publish "$project" \
     --configuration "$configuration" \
-    --runtime linux-x64 \
+    --runtime "$rid" \
     --self-contained false \
     --output "$out" \
     -p:DebugType=embedded \
     -nologo
 
 exe="$out/FaceBridge.ModuleHost"
-[[ -x "$exe" ]] || { echo "Publish finished but $exe is missing." >&2; exit 1; }
+if [[ "$rid" == win-* ]]; then exe="$exe.exe"; fi
+[[ -f "$exe" ]] || { echo "Publish finished but $exe is missing." >&2; exit 1; }
 for name in VRCFaceTracking.Core.dll VRCFaceTracking.SDK.dll FaceBridge.Sdk.dll; do
     [[ -f "$out/$name" ]] || { echo "Publish output is missing $name." >&2; exit 1; }
 done

@@ -92,7 +92,7 @@ export function mountSettings(root) {
     'form',
     { class: 'form card', novalidate: true, 'aria-labelledby': 'host-set-h' },
     h('h2', { id: 'host-set-h' }, 'Module host'),
-    h('p', { class: 'muted' }, 'Modules run in a separate .NET process. Leave these empty to let OSCFT find them.'),
+    h('p', { class: 'muted' }, 'VRCFaceTracking (.NET) modules run in a separate .NET process; native modules run on their own and do not use it. Leave these empty to let OSCFT find them.'),
     h('div', { class: 'field' }, h('label', { for: 's-host' }, 'Module host executable'), h('div', { class: 'control' }, moduleHost, browseHost), h('div', { class: 'hint', id: 's-host-hint' }, 'FaceBridge.ModuleHost.exe. Automatic: FACEBRIDGE_MODULE_HOST, the module-host folder next to the app, then the development build.')),
     h('div', { class: 'field' }, h('label', { for: 's-dotnet' }, '.NET installation folder'), h('div', { class: 'control' }, dotnetRoot, browseDotnet), h('div', { class: 'hint', id: 's-dotnet-hint' }, 'Passed to the module host as DOTNET_ROOT. Only needed when .NET 10 is not installed system-wide.')),
     h('div', { class: 'form-actions' }, hostSave),

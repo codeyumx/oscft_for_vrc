@@ -1,8 +1,9 @@
 # Module host IPC protocol (v1)
 
-The Rust host (`fb-core`) runs each module in its own .NET process, `FaceBridge.ModuleHost`. They talk over one
-loopback TCP connection. This file is the contract both sides implement (`crates/fb-protocol`,
-`dotnet/FaceBridge.ModuleHost/Ipc`). Bump `PROTOCOL_VERSION` on any incompatible change.
+The Rust host (`fb-core`) runs each module in its own process: `FaceBridge.ModuleHost` for .NET (VRCFT) modules, or
+the module's own program for native modules (`spec/native-modules.md`). They talk over one loopback TCP connection.
+This file is the contract every side implements (`crates/fb-protocol`, `dotnet/FaceBridge.ModuleHost/Ipc`,
+`crates/fb-module-sdk`). Bump `PROTOCOL_VERSION` on any incompatible change.
 
 ## Process launch
 
@@ -12,6 +13,8 @@ The host binds `127.0.0.1:0`, then starts:
 FaceBridge.ModuleHost.exe --connect 127.0.0.1:<port> --token <32 hex chars> --module <absolute path to module dll>
                           --data-dir <absolute path, module's writable data dir> --parent-pid <host pid>
 ```
+
+A native module's executable gets the same arguments without `--module` (`spec/native-modules.md`).
 
 - The child connects and sends `Hello` first. The host drops any connection whose first message is not a
   `Hello` with the right token and version within 10 s, and keeps listening until its own child connects.
