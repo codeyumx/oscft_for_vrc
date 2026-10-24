@@ -4,6 +4,7 @@
 #   OSCFT-for-VRC-<version>-windows-x64-no-module-host.exe / -linux-x64-no-module-host    app only
 #   module-host-win-x64.zip / module-host-linux-x64.zip                        the module host alone
 # The host is built into the app at compile time from FACEBRIDGE_BUNDLED_HOST_ZIP (see crates/fb-core/build.rs).
+# Usage: scripts/release.sh [linux-x64] [win-x64]   (no arguments: both platforms)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,11 +23,20 @@ with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
 EOF
 }
 
+rids=("$@")
+if [[ ${#rids[@]} -eq 0 ]]; then rids=(linux-x64 win-x64); fi
+for rid in "${rids[@]}"; do
+    if [[ "$rid" != linux-x64 && "$rid" != win-x64 ]]; then
+        echo "unknown platform '$rid' (expected linux-x64 or win-x64)" >&2
+        exit 2
+    fi
+done
+
 rm -rf "$dist"
 mkdir -p "$dist"
 cd "$root"
 
-for rid in linux-x64 win-x64; do
+for rid in "${rids[@]}"; do
     case "$rid" in
         linux-x64)
             os=linux-x64 ext=""
@@ -49,7 +59,7 @@ for rid in linux-x64 win-x64; do
 
     FACEBRIDGE_BUNDLED_HOST_ZIP="$zip" "${build[@]}"
     cp "$bin" "$dist/$name-$os$ext"
+    if [[ -z "$ext" ]]; then chmod +x "$dist/$name-$os" "$dist/$name-$os-no-module-host"; fi
 done
 
-chmod +x "$dist/$name-linux-x64" "$dist/$name-linux-x64-no-module-host"
 ls -l "$dist"

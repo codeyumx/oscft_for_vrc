@@ -1,7 +1,9 @@
 # Optional release pipeline. Never runs on ordinary pushes: only when a `v*` tag is pushed or when started by hand
-# (Actions → Release → Run workflow). Runs the Rust and .NET tests, builds every asset with scripts/release.sh
+# (Actions → Release → Run workflow). Runs the Rust and .NET tests, builds the assets with scripts/release.sh
 # (Linux; the Windows app is cross-built with cargo-xwin) and, for a tag or `publish: true`, uploads them to a
-# draft GitHub release for that tag. Review the draft and publish it yourself.
+# draft GitHub release for that tag. Started by hand it can build one platform only, e.g. the Linux assets for a
+# draft whose Windows assets were built locally. A release that is already published is never changed. Review the
+# draft and publish it yourself.
 name: Release
 
 on:
@@ -13,6 +15,11 @@ on:
         description: "Upload the assets to a draft release for the version in Cargo.toml (otherwise build artifacts only)"
         type: boolean
         default: false
+      platforms:
+        description: "Which assets to build"
+        type: choice
+        options: [all, linux-x64, win-x64]
+        default: all
 
 permissions:
   contents: write
@@ -42,6 +49,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: cargo-xwin
+        if: inputs.platforms != 'linux-x64'
         run: cargo install --locked cargo-xwin
 
       - uses: actions/setup-dotnet@v4
@@ -65,7 +73,10 @@ jobs:
         run: dotnet test dotnet/FaceBridge.slnx --nologo
 
       - name: Build release assets
-        run: scripts/release.sh
+        env:
+          PLATFORMS: ${{ inputs.platforms || 'all' }}
+        run: |
+          if [[ "$PLATFORMS" == all ]]; then scripts/release.sh; else scripts/release.sh "$PLATFORMS"; fi
 
       - uses: actions/upload-artifact@v4
         with:
@@ -79,7 +90,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: v${{ steps.version.outputs.version }}
         run: |
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
+          if draft="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [[ "$draft" != true ]]; then
+              echo "::warning::$TAG is already published; its assets are left as they are"
+              exit 0
+            fi
+          else
             gh release create "$TAG" --draft --target "$GITHUB_SHA" \
               --title "OSCFT for VRC ${{ steps.version.outputs.version }}" --notes "Release notes to be written."
           fi
