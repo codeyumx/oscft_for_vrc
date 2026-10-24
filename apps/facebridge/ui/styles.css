@@ -158,8 +158,10 @@ input[aria-invalid="true"] { border-color: var(--danger); }
 input[type="range"] { accent-color: var(--accent); width: 100%; min-width: 120px; }
 input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
 
-.switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
-.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+/* The real checkbox is visually hidden but must stay inside .switch (position: relative): positioned against the
+   window instead, focusing it on click scrolled the whole app (the viewport, not <main>) to reveal it. */
+.switch { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch input { position: absolute; left: 0; top: 0; opacity: 0; width: 1px; height: 1px; margin: 0; }
 .switch .track {
   width: 36px; height: 20px; border-radius: 10px; background: var(--border-strong); position: relative; transition: background .12s;
 }
