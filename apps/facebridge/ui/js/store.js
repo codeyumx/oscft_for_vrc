@@ -25,6 +25,8 @@ export const state = {
   oscConfig: null,
   configError: null,
   checkModuleUpdates: true,
+  checkAppUpdates: true,
+  appUpdate: null,
   moduleUpdates: [],
   closeToTray: true,
 };
@@ -124,7 +126,7 @@ export async function init() {
         else scheduleRefresh();
       },
     ),
-    listen('module-updates', () => scheduleRefresh()),
+    listen('updates', () => scheduleRefresh()),
     listen(
       'frame',
       /** @param {FrameView} frame */ (frame) => {

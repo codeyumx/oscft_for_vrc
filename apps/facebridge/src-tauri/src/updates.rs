@@ -1,5 +1,6 @@
-//! Module update check: asks GitHub or GitLab for the latest release of each installed module's source repository
-//! (`ModuleView::source_repo`) and reports modules whose installed version is older. Switched on and off in
+//! Update checks: asks GitHub for the latest OSCFT for VRC release ([`APP_REPO`]) and GitHub or GitLab for the latest
+//! release of each installed module's source repository (`ModuleView::source_repo`), and reports what is newer than
+//! the running app / installed module. The two checks are switched on and off separately in
 //! `<data_dir>/app-settings.json`, which belongs to the app; `config.json` is owned by the running engine.
 
 use std::collections::{BTreeSet, HashMap};
@@ -24,13 +25,15 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub check_module_updates: bool,
+    /// Check for new OSCFT for VRC releases (independent of the module update check).
+    pub check_app_updates: bool,
     /// Closing the window hides it to a tray icon (tracking keeps running); off = no tray icon, closing quits.
     pub close_to_tray: bool,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
-        Self { check_module_updates: true, close_to_tray: true }
+        Self { check_module_updates: true, check_app_updates: true, close_to_tray: true }
     }
 }
 
@@ -62,6 +65,27 @@ pub struct ModuleUpdate {
     pub release_url: String,
 }
 
+/// The GitHub repository OSCFT for VRC itself is released from.
+const APP_REPO: &str = "codeyumx/oscft_for_vrc";
+
+pub fn app_repo() -> SourceRepo {
+    SourceRepo::Github { path: APP_REPO.into() }
+}
+
+fn is_app_repo(repo: &SourceRepo) -> bool {
+    matches!(repo, SourceRepo::Github { path } if path == APP_REPO)
+}
+
+/// A newer OSCFT for VRC release than the running app.
+#[derive(Serialize, Clone, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppUpdate {
+    /// The release tag as published (e.g. `v0.4.0`).
+    pub latest_version: String,
+    /// The release's page, where its downloads are.
+    pub release_url: String,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Release {
     tag: String,
@@ -76,26 +100,44 @@ struct Checked {
 }
 
 pub struct UpdateChecker {
-    enabled: AtomicBool,
+    modules_enabled: AtomicBool,
+    app_enabled: AtomicBool,
     checked: Mutex<HashMap<SourceRepo, Checked>>,
 }
 
 impl UpdateChecker {
-    pub fn new(enabled: bool) -> Self {
-        Self { enabled: AtomicBool::new(enabled), checked: Mutex::new(HashMap::new()) }
+    pub fn new(modules_enabled: bool, app_enabled: bool) -> Self {
+        Self {
+            modules_enabled: AtomicBool::new(modules_enabled),
+            app_enabled: AtomicBool::new(app_enabled),
+            checked: Mutex::new(HashMap::new()),
+        }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.enabled.load(Ordering::SeqCst)
+    pub fn modules_enabled(&self) -> bool {
+        self.modules_enabled.load(Ordering::SeqCst)
     }
 
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::SeqCst);
+    pub fn set_modules_enabled(&self, enabled: bool) {
+        self.modules_enabled.store(enabled, Ordering::SeqCst);
+    }
+
+    pub fn app_enabled(&self) -> bool {
+        self.app_enabled.load(Ordering::SeqCst)
+    }
+
+    pub fn set_app_enabled(&self, enabled: bool) {
+        self.app_enabled.store(enabled, Ordering::SeqCst);
+    }
+
+    /// Whether the check that `repo` belongs to (app or modules) is switched on.
+    fn wants(&self, repo: &SourceRepo) -> bool {
+        if is_app_repo(repo) { self.app_enabled() } else { self.modules_enabled() }
     }
 
     /// Modules whose source has a newer release than the installed version (empty while switched off).
     pub fn updates(&self, modules: &[ModuleView]) -> Vec<ModuleUpdate> {
-        if !self.enabled() {
+        if !self.modules_enabled() {
             return Vec::new();
         }
         let checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
@@ -112,8 +154,23 @@ impl UpdateChecker {
             .collect()
     }
 
+    /// The latest OSCFT for VRC release, if it is newer than the running app (`None` while the app check is off).
+    pub fn app_update(&self) -> Option<AppUpdate> {
+        self.app_update_over(env!("CARGO_PKG_VERSION"))
+    }
+
+    fn app_update_over(&self, running: &str) -> Option<AppUpdate> {
+        if !self.app_enabled() {
+            return None;
+        }
+        let checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
+        let release = checked.get(&app_repo())?.release.as_ref()?;
+        is_newer(&release.tag, running)
+            .then(|| AppUpdate { latest_version: release.tag.clone(), release_url: release.url.clone() })
+    }
+
     /// Asks GitHub / GitLab about every repository in `repos` that is due, and forgets repositories no longer
-    /// installed. Blocking (network). Returns whether any known release changed.
+    /// listed. Blocking (network). Returns whether any known release changed.
     pub fn check(&self, repos: &BTreeSet<SourceRepo>) -> bool {
         let due: Vec<SourceRepo> = {
             let mut checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
@@ -131,8 +188,9 @@ impl UpdateChecker {
             .into();
         let mut changed = false;
         for repo in due {
-            if !self.enabled() {
-                break;
+            // Switched off while this round was running.
+            if !self.wants(&repo) {
+                continue;
             }
             let result = latest_release(&agent, &repo);
             let mut checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
@@ -262,12 +320,14 @@ mod tests {
     fn settings_default_on_and_round_trip() {
         let tmp = tempfile::tempdir().unwrap();
         assert_eq!(load_settings(tmp.path()).unwrap(), AppSettings::default());
-        let custom = AppSettings { check_module_updates: false, close_to_tray: false };
+        let custom = AppSettings { check_module_updates: false, check_app_updates: false, close_to_tray: false };
         save_settings(tmp.path(), &custom).unwrap();
         assert_eq!(load_settings(tmp.path()).unwrap(), custom);
-        // A file written before a setting existed keeps that setting's default.
+        // A file written before a setting existed keeps that setting's default: turning the module check off never
+        // turned the app check off.
         std::fs::write(settings_path(tmp.path()), r#"{"checkModuleUpdates":false}"#).unwrap();
-        assert!(load_settings(tmp.path()).unwrap().close_to_tray);
+        let old = load_settings(tmp.path()).unwrap();
+        assert!(!old.check_module_updates && old.check_app_updates && old.close_to_tray);
         std::fs::write(settings_path(tmp.path()), "{").unwrap();
         assert!(load_settings(tmp.path()).is_err());
     }
@@ -296,7 +356,7 @@ mod tests {
             settings_rev: 0,
             image_count: 0,
         };
-        let checker = UpdateChecker::new(true);
+        let checker = UpdateChecker::new(true, true);
         {
             let mut checked = checker.checked.lock().unwrap();
             let release = |tag: &str| Checked { due: Instant::now(), release: Some(Release { tag: tag.into(), url: format!("https://x/{tag}") }) };
@@ -323,8 +383,40 @@ mod tests {
                 ModuleUpdate { module_id: "gitlab-behind".into(), latest_version: "3.1".into(), release_url: "https://x/3.1".into() },
             ],
         );
-        checker.set_enabled(false);
+        checker.set_app_enabled(false);
+        assert_eq!(checker.updates(&modules).len(), 2, "the app check is separate");
+        checker.set_modules_enabled(false);
         assert!(checker.updates(&modules).is_empty());
+    }
+
+    #[test]
+    fn app_update_only_when_the_app_release_is_newer_and_the_app_check_is_on() {
+        let checker = UpdateChecker::new(true, true);
+        let set_app_release = |tag: Option<&str>| {
+            let release = tag.map(|t| Release { tag: t.into(), url: format!("https://x/{t}") });
+            checker.checked.lock().unwrap().insert(app_repo(), Checked { due: Instant::now(), release });
+        };
+        assert_eq!(checker.app_update_over("0.3.1"), None, "not checked yet");
+        set_app_release(Some("v0.4.0"));
+        assert_eq!(
+            checker.app_update_over("0.3.1"),
+            Some(AppUpdate { latest_version: "v0.4.0".into(), release_url: "https://x/v0.4.0".into() }),
+        );
+        assert_eq!(checker.app_update_over("0.4.0"), None, "same version");
+        assert_eq!(checker.app_update_over("0.5.0"), None, "running a newer build");
+        // A module released from another repository says nothing about the app.
+        checker.checked.lock().unwrap().insert(
+            SourceRepo::Github { path: "codeyumx/other".into() },
+            Checked { due: Instant::now(), release: Some(Release { tag: "v9.0.0".into(), url: String::new() }) },
+        );
+        assert_eq!(checker.app_update_over("0.4.0"), None);
+        checker.set_modules_enabled(false);
+        assert!(checker.app_update_over("0.3.1").is_some(), "the module check is separate");
+        checker.set_app_enabled(false);
+        assert_eq!(checker.app_update_over("0.3.1"), None, "switched off");
+        checker.set_app_enabled(true);
+        set_app_release(None);
+        assert_eq!(checker.app_update_over("0.3.1"), None, "repository has no release");
     }
 
     #[test]

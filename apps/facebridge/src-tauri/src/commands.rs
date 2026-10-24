@@ -11,7 +11,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::state::{Phase, Supervisor};
-use crate::updates::ModuleUpdate;
+use crate::updates::{AppUpdate, ModuleUpdate};
 use crate::view::{AdjustGroupView, FrameView, HostPaths, OscConfigInput, expression_names, image_data_url};
 
 type Sup<'a> = State<'a, Arc<Supervisor>>;
@@ -50,7 +50,11 @@ pub struct AppStateView {
     config_error: Option<String>,
     /// Whether module sources are checked for new releases (`app-settings.json`).
     check_module_updates: bool,
-    /// Installed modules with a newer release at their source (empty while the check is off).
+    /// Whether OSCFT for VRC's own repository is checked for new releases (`app-settings.json`).
+    check_app_updates: bool,
+    /// A newer OSCFT for VRC release than this build (`None` while the app check is off).
+    app_update: Option<AppUpdate>,
+    /// Installed modules with a newer release at their source (empty while the module check is off).
     module_updates: Vec<ModuleUpdate>,
     /// Whether closing the window hides it to the tray (`app-settings.json`).
     close_to_tray: bool,
@@ -86,7 +90,9 @@ pub async fn get_state(sup: Sup<'_>) -> CmdResult<AppStateView> {
             host_paths,
             osc_config,
             config_error,
-            check_module_updates: sup.updates.enabled(),
+            check_module_updates: sup.updates.modules_enabled(),
+            check_app_updates: sup.updates.app_enabled(),
+            app_update: sup.updates.app_update(),
             module_updates,
             close_to_tray: sup.settings().close_to_tray,
         })
@@ -275,7 +281,20 @@ pub async fn set_check_module_updates(sup: Sup<'_>, enabled: bool) -> CmdResult<
     let sup = Arc::clone(sup.inner());
     blocking(move || {
         sup.update_settings(|s| s.check_module_updates = enabled).map_err(|e| format!("{e:#}"))?;
-        sup.updates.set_enabled(enabled);
+        sup.updates.set_modules_enabled(enabled);
+        sup.wake_update_checker();
+        Ok(())
+    })
+    .await
+}
+
+/// Switches the OSCFT for VRC update check on or off and saves it to `app-settings.json`.
+#[tauri::command]
+pub async fn set_check_app_updates(sup: Sup<'_>, enabled: bool) -> CmdResult<()> {
+    let sup = Arc::clone(sup.inner());
+    blocking(move || {
+        sup.update_settings(|s| s.check_app_updates = enabled).map_err(|e| format!("{e:#}"))?;
+        sup.updates.set_app_enabled(enabled);
         sup.wake_update_checker();
         Ok(())
     })

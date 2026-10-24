@@ -1,6 +1,7 @@
 //! Engine lifecycle owned by the app: start in the background (so the window always opens), forward engine
 //! events to the webview, stream tracking frames while the Live view is open, and shut down cleanly.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
@@ -18,14 +19,14 @@ use crate::view::FrameView;
 const FRAME_INTERVAL: Duration = Duration::from_millis(50);
 /// How often an event forwarder re-checks whether its engine generation is still current.
 const FORWARDER_POLL: Duration = Duration::from_millis(500);
-/// How often the update checker re-evaluates which module sources are due (it is also woken on module changes).
+/// How often the update checker re-evaluates which repositories are due (it is also woken on module changes).
 const UPDATE_POLL: Duration = Duration::from_secs(60);
 
 pub const EVENT_ENGINE_STATE: &str = "engine-state";
 pub const EVENT_ENGINE: &str = "engine-event";
 pub const EVENT_FRAME: &str = "frame";
-/// Emitted when a module source's latest release changed (the UI re-reads `get_state`).
-pub const EVENT_MODULE_UPDATES: &str = "module-updates";
+/// Emitted when the latest release of the app or of a module source changed (the UI re-reads `get_state`).
+pub const EVENT_UPDATES: &str = "updates";
 
 enum Slot {
     Starting,
@@ -78,7 +79,7 @@ impl Supervisor {
             live_raw: AtomicBool::new(false),
             stopping: AtomicBool::new(false),
             live_thread: OnceLock::new(),
-            updates: UpdateChecker::new(settings.check_module_updates),
+            updates: UpdateChecker::new(settings.check_module_updates, settings.check_app_updates),
             update_thread: OnceLock::new(),
             settings: Mutex::new(settings),
         })
@@ -183,22 +184,30 @@ impl Supervisor {
         }
     }
 
-    /// Spawns the thread that checks module sources for new releases while the setting is on.
+    /// Spawns the thread that checks the app's repository and the module sources for new releases while the
+    /// respective setting is on.
     pub fn spawn_update_checker(self: &Arc<Self>, app: &AppHandle) {
         let sup = Arc::clone(self);
         let app = app.clone();
-        let handle = thread::Builder::new().name("module-updates".into()).spawn(move || {
+        let handle = thread::Builder::new().name("update-check".into()).spawn(move || {
+            // Module sources of the last running engine, kept while the engine is down or restarting so their
+            // known releases are not forgotten and asked for again.
+            let mut module_repos = BTreeSet::new();
             loop {
                 if sup.stopping.load(Ordering::SeqCst) {
                     return;
                 }
-                if sup.updates.enabled()
-                    && let Some(engine) = sup.running_engine()
-                {
-                    let repos = engine.snapshot().modules.into_iter().filter_map(|m| m.source_repo).collect();
-                    if sup.updates.check(&repos) {
-                        let _ = app.emit(EVENT_MODULE_UPDATES, ());
-                    }
+                let modules_on = sup.updates.modules_enabled();
+                if modules_on && let Some(engine) = sup.running_engine() {
+                    module_repos = engine.snapshot().modules.into_iter().filter_map(|m| m.source_repo).collect();
+                }
+                // A check that is switched off is left out, which also forgets what it knew.
+                let mut repos = if modules_on { module_repos.clone() } else { BTreeSet::new() };
+                if sup.updates.app_enabled() {
+                    repos.insert(updates::app_repo());
+                }
+                if sup.updates.check(&repos) {
+                    let _ = app.emit(EVENT_UPDATES, ());
                 }
                 thread::park_timeout(UPDATE_POLL);
             }

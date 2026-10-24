@@ -103,6 +103,7 @@ pub fn run() {
             commands::get_adjust_groups,
             commands::set_osc_config,
             commands::set_check_module_updates,
+            commands::set_check_app_updates,
             commands::set_close_to_tray,
             commands::set_host_paths,
             commands::restart_engine,

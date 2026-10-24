@@ -1,5 +1,5 @@
 // @ts-check
-// Settings: OSC output, module host / .NET locations, module update check, and where data lives.
+// Settings: OSC output, module host / .NET locations, app and module update check, and where data lives.
 
 import { api } from '../api.js';
 import { errMsg, h, runButton, toast } from '../dom.js';
@@ -49,7 +49,10 @@ export function mountSettings(root) {
   const hostDirtyInputs = [moduleHost, dotnetRoot];
   let hostDirty = false;
 
-  // ---- module updates ----
+  // ---- updates ----
+  const checkAppUpdates = h('input', { type: 'checkbox', id: 's-app-updates', 'aria-describedby': 's-app-updates-hint' });
+  const checkAppUpdatesSwitch = h('label', { class: 'switch', for: 's-app-updates' }, checkAppUpdates, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Check for OSCFT for VRC updates'));
+  let appUpdatesSaving = false;
   const checkUpdates = h('input', { type: 'checkbox', id: 's-updates', 'aria-describedby': 's-updates-hint' });
   const checkUpdatesSwitch = h('label', { class: 'switch', for: 's-updates' }, checkUpdates, h('span', { class: 'track', 'aria-hidden': 'true' }), h('span', null, 'Check for module updates'));
   let updatesSaving = false;
@@ -101,8 +104,9 @@ export function mountSettings(root) {
   const updatesCard = h(
     'section',
     { class: 'form card', 'aria-labelledby': 'updates-set-h' },
-    h('h2', { id: 'updates-set-h' }, 'Module updates'),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Updates'), h('div', { class: 'control' }, checkUpdatesSwitch), h('div', { class: 'hint', id: 's-updates-hint' }, 'Asks GitHub or GitLab for the latest release of each module that is published there, and shows "Update available" on the Modules page. Checked at startup, after installs, and every 6 hours.')),
+    h('h2', { id: 'updates-set-h' }, 'Updates'),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'App'), h('div', { class: 'control' }, checkAppUpdatesSwitch), h('div', { class: 'hint', id: 's-app-updates-hint' }, 'Asks GitHub for the latest OSCFT for VRC release and shows "Update" next to the version at the top left when it is newer. Checked at startup and every 6 hours.')),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Modules'), h('div', { class: 'control' }, checkUpdatesSwitch), h('div', { class: 'hint', id: 's-updates-hint' }, 'Asks GitHub or GitLab for the latest release of each module that is published there, and shows "Update available" on the Modules page. Checked at startup, after installs, and every 6 hours.')),
   );
 
   const windowCard = h(
@@ -149,6 +153,23 @@ export function mountSettings(root) {
       },
       'Settings saved; the engine is restarting',
     );
+  });
+
+  checkAppUpdates.addEventListener('change', async () => {
+    const enabled = checkAppUpdates.checked;
+    appUpdatesSaving = true;
+    checkAppUpdates.disabled = true;
+    try {
+      await api.setCheckAppUpdates(enabled);
+      toast(enabled ? 'App update check turned on' : 'App update check turned off', 'ok');
+    } catch (e) {
+      checkAppUpdates.checked = !enabled;
+      toast(errMsg(e), 'error');
+    } finally {
+      appUpdatesSaving = false;
+      checkAppUpdates.disabled = false;
+    }
+    await refresh();
   });
 
   checkUpdates.addEventListener('change', async () => {
@@ -240,6 +261,7 @@ export function mountSettings(root) {
       moduleHost.value = state.hostPaths.moduleHost ?? '';
       dotnetRoot.value = state.hostPaths.dotnetRoot ?? '';
     }
+    if (!appUpdatesSaving) checkAppUpdates.checked = state.checkAppUpdates;
     if (!updatesSaving) checkUpdates.checked = state.checkModuleUpdates;
     if (!traySaving) closeToTray.checked = state.closeToTray;
     if (osc || state.snapshot) filled = true;

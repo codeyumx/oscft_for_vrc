@@ -1,7 +1,8 @@
 // @ts-check
 // Entry point: routing, sidebar, and wiring the store to the active page.
 
-import { h } from './dom.js';
+import { api } from './api.js';
+import { errMsg, h, toast } from './dom.js';
 import { initPopups } from './popups.js';
 import { backendError, init, onState, state } from './store.js';
 import { mountHome } from './pages/home.js';
@@ -31,6 +32,7 @@ const main = /** @type {HTMLElement} */ (document.getElementById('main'));
 const nav = /** @type {HTMLElement} */ (document.getElementById('nav'));
 const sidebarStatus = /** @type {HTMLElement} */ (document.getElementById('sidebar-status'));
 const brandVersion = /** @type {HTMLElement} */ (document.getElementById('brand-version'));
+const appUpdate = /** @type {HTMLButtonElement} */ (document.getElementById('app-update'));
 
 /** @type {PageHandle | null} */
 let current = null;
@@ -77,6 +79,13 @@ function buildNav() {
 
 function updateChrome() {
   brandVersion.textContent = state.version ? `v${state.version}` : '';
+  const update = state.appUpdate;
+  appUpdate.hidden = !update;
+  if (update) {
+    const text = `OSCFT for VRC ${update.latestVersion} is available. Open the release page to download it.`;
+    appUpdate.title = text;
+    appUpdate.setAttribute('aria-label', text);
+  }
   const snapshot = state.snapshot;
 
   const notifications = snapshot?.notifications ?? [];
@@ -103,6 +112,9 @@ function updateChrome() {
 }
 
 buildNav();
+appUpdate.addEventListener('click', () => {
+  if (state.appUpdate) api.openUrl(state.appUpdate.releaseUrl).catch((e) => toast(errMsg(e), 'error'));
+});
 window.addEventListener('hashchange', navigate);
 onState(() => {
   updateChrome();

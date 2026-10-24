@@ -114,6 +114,8 @@ export const api = {
   /** @param {boolean} enabled */
   setCheckModuleUpdates: (enabled) => invoke('set_check_module_updates', { enabled }),
   /** @param {boolean} enabled */
+  setCheckAppUpdates: (enabled) => invoke('set_check_app_updates', { enabled }),
+  /** @param {boolean} enabled */
   setCloseToTray: (enabled) => invoke('set_close_to_tray', { enabled }),
   restartEngine: () => invoke('restart_engine'),
   /**

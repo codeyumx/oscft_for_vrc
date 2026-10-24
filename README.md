@@ -106,11 +106,15 @@ every frame before it is sent. They are stored in `config.json` (`mutation`), le
 `calibration.json`. From the CLI: `facebridge-cli mutation show`, `mutation set '{"filter":{"enabled":true}}'`,
 `calibration show`, `calibration reset [Shape]`.
 
-Module update check (Settings page, on by default, stored in `app-settings.json` in the data folder): for each
-module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub repository or a GitLab project
-(gitlab.com, or a self-hosted GitLab whose host name starts with `gitlab.`), the app asks that site's API for the
-latest release at startup, after installs and every 6 hours, and shows "Update available" on the module's card when
-the release tag is a higher version than the module's `Version`.
+App update check (Settings page, on by default, stored in `app-settings.json` in the data folder): at startup and every
+6 hours the app asks GitHub for the latest OSCFT for VRC release and shows an "Update" badge next to the version at
+the top left when it is newer than the running build; clicking it opens the release page.
+
+Module update check (Settings page, on by default, stored in `app-settings.json` in the data folder, independent of
+the app update check): for each module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub
+repository or a GitLab project (gitlab.com, or a self-hosted GitLab whose host name starts with `gitlab.`), the app
+asks that site's API for the latest release at startup, after installs and every 6 hours, and shows "Update
+available" on the module's card when the release tag is a higher version than the module's `Version`.
 
 ## Tests
 

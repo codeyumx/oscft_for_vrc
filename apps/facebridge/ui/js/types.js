@@ -95,8 +95,16 @@
  * @property {OscConfig|null} oscConfig  persisted OSC settings (available even when the engine is down)
  * @property {string|null} configError  why config.json could not be read
  * @property {boolean} checkModuleUpdates  whether module sources are checked for new releases
- * @property {ModuleUpdate[]} moduleUpdates  installed modules with a newer release (empty while the check is off)
+ * @property {boolean} checkAppUpdates  whether OSCFT for VRC's own repository is checked for new releases
+ * @property {AppUpdate|null} appUpdate  a newer OSCFT for VRC release than this build (null while the app check is off)
+ * @property {ModuleUpdate[]} moduleUpdates  installed modules with a newer release (empty while the module check is off)
  * @property {boolean} closeToTray  whether closing the window hides it to the tray instead of quitting
+ */
+
+/**
+ * @typedef {object} AppUpdate
+ * @property {string} latestVersion  release tag as published, e.g. "v0.4.0"
+ * @property {string} releaseUrl  the release's GitHub page
  */
 
 /**
