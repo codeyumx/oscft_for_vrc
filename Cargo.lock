@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "facebridge"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1117,7 +1117,7 @@ dependencies = [
 
 [[package]]
 name = "facebridge-cli"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1136,7 +1136,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "fb-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "crossbeam-channel",
@@ -1156,7 +1156,7 @@ dependencies = [
 
 [[package]]
 name = "fb-module-sdk"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fb-protocol",
  "fb-tracking",
@@ -1165,7 +1165,7 @@ dependencies = [
 
 [[package]]
 name = "fb-mutate"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fb-tracking",
  "serde",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "fb-osc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fb-tracking",
  "mdns-sd",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "fb-protocol"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "fb-tracking",
  "thiserror 2.0.21",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "fb-tracking"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "fdeflate"
