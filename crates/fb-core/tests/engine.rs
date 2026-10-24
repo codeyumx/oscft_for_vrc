@@ -586,6 +586,8 @@ fn a_lone_module_without_data_keeps_its_claim() {
     h.wait_state(&c, ModuleRunState::Running);
     h.engine.set_module_enabled(&b, false).unwrap();
     h.engine.set_module_options(&a, data_options(1)).unwrap();
+    // A's first start (before the options and B's disabling settled) may have logged a hand-over; only count new ones.
+    let no_data_before = count_logs(&h.engine.snapshot(), "No tracking data");
     h.engine.restart_modules().unwrap();
     let snap = h.wait("A and C running", |s| {
         module(s, &a).state == ModuleRunState::Running && module(s, &c).state == ModuleRunState::Running
@@ -596,7 +598,7 @@ fn a_lone_module_without_data_keeps_its_claim() {
     assert_eq!(module(&snap, &a).state, ModuleRunState::Running);
     assert!(module(&snap, &a).claims.eye && module(&snap, &a).last_error.is_none());
     assert!(has_log(&snap, "No later module could take over eye tracking"));
-    assert!(!has_log(&snap, "No tracking data"));
+    assert_eq!(count_logs(&snap, "No tracking data"), no_data_before);
     assert!(h.engine.latest_frame().1.eye);
 }
 
