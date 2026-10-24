@@ -98,7 +98,11 @@ pub enum ChildMessage {
     InitResult { eye: bool, expression: bool, name: String, images: Vec<Vec<u8>> },
     Frame(Box<FrameMessage>),
     Log { level: LogLevel, event_id: i32, category: String, message: String, exception: String },
+    /// Informational pop-up; never stored.
     Notify { level: LogLevel, key: String, message: String },
+    /// A message: stays on the Home page until the user dismisses it or the module clears it.
+    NotifyMessage { level: LogLevel, key: String, message: String },
+    /// Removes stored messages (`NotifyMessage`) by key; empty = all of this module's.
     NotifyClear { key: String },
     Status { state: i8 },
     SettingsSchema { json: String },

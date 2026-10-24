@@ -67,7 +67,7 @@ function buildNav() {
   for (const page of PAGES) {
     const link = h('a', { href: `#/${page.id}` }, h('span', null, page.label));
     if (page.id === 'home') {
-      homeBadge = h('span', { class: 'nav-badge', hidden: true, 'aria-label': 'notifications' });
+      homeBadge = h('span', { class: 'nav-badge', hidden: true, 'aria-label': 'messages' });
       link.append(homeBadge);
     }
     navLinks.set(page.id, link);

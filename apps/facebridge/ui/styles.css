@@ -220,6 +220,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .banner.error, .banner.critical { border-color: var(--danger); background: var(--danger-bg); }
 .banner.debug, .banner.trace { border-color: var(--border-strong); }
 .banner-list { display: flex; flex-direction: column; gap: 8px; }
+/* Home messages: bounded height so a pile of messages scrolls instead of pushing the page down. */
+.message-list { max-height: min(40vh, 360px); overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
+.message-list .banner { flex-shrink: 0; }
+.message-list .msg { max-height: 7.5em; overflow-y: auto; }
 
 /* ---- modules ---- */
 .module { gap: 12px; }

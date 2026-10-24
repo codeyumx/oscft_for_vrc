@@ -133,10 +133,12 @@ happens only at startup: a module that later stops sending (headset put down) ke
 runs the sequence again. Turn the option off to keep the old behaviour of claiming without proof.
 
 Pop-ups (bottom right, fade in and out, on every page) show a module's notifications, its `Error`/`Critical` log
-entries (first line; the full entry stays in Output) and a module that fails. With notifications turned off for a
-module, its notifications and error logs only go to the Output log; a failure is always shown. This works for
-unmodified VRCFaceTracking modules too: their error logs pop up, and a VRCFT notification (`EventId 7400`) becomes
-a FaceBridge notification.
+entries (first line; the full entry stays in Output) and a module that fails. Ordinary notifications are
+informational and only pop up. *Messages* (a separate kind a module sends on purpose) also stay on the Home page
+until dismissed; each module keeps at most 20 (oldest dropped), the list scrolls, and *Dismiss all* clears it.
+With notifications turned off for a module, its notifications, messages and error logs only go to the Output log;
+a failure is always shown. This works for unmodified VRCFaceTracking modules too: their error logs pop up, and a
+VRCFT notification (`EventId 7400`) becomes an informational FaceBridge notification.
 
 ## Module authors: FaceBridge.Sdk
 
@@ -186,17 +188,20 @@ private void Reconnect()
 }
 ```
 
-### Notifications
+### Notifications and messages
 
-`UserNotifications.Show(Logger, level, message, key)` shows a pop-up and a banner on the Home page; a new message
-with the same `key` replaces the old one, and `UserNotifications.Clear(key)` removes it (for example once the
-problem is solved). Use it for anything the user has to act on instead of hoping they read the log. Users can turn
-a module's notifications off in its settings panel.
+`UserNotifications.Show(Logger, level, message)` shows an informational pop-up that fades by itself.
+`UserNotifications.ShowMessage(Logger, level, message, key)` shows a pop-up and also keeps the message on the Home
+page until the user dismisses it; a new message with the same `key` replaces the old one, and
+`UserNotifications.ClearMessage(key)` removes it (for example once the problem is solved). Use messages for
+anything the user has to act on instead of hoping they read the log. Users can turn a module's notifications off in
+its settings panel.
 
 ```csharp
-UserNotifications.Show(Logger, LogLevel.Warning, "No headset answered yet. Is tracking switched on?", key: "no-headset");
+UserNotifications.Show(Logger, LogLevel.Information, "Connected to the headset.");
+UserNotifications.ShowMessage(Logger, LogLevel.Warning, "No headset answered yet. Is tracking switched on?", key: "no-headset");
 // later, once data arrives:
-UserNotifications.Clear("no-headset");
+UserNotifications.ClearMessage("no-headset");
 ```
 
 `FaceBridgeEnvironment.IsFaceBridge` tells the module which host it runs in.

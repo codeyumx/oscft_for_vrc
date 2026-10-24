@@ -264,6 +264,7 @@ enum EngineEventView {
     OscStatusChanged,
     MutationChanged,
     Log { entry: fb_core::LogEntry },
+    Notice { notification: fb_core::NotificationView },
 }
 
 fn spawn_forwarder(app: &AppHandle, sup: &Arc<Supervisor>, engine: &Arc<Engine>, generation: u64) {
@@ -280,6 +281,7 @@ fn spawn_forwarder(app: &AppHandle, sup: &Arc<Supervisor>, engine: &Arc<Engine>,
                             EngineEventView::ModulesChanged
                         }
                         EngineEvent::NotificationsChanged => EngineEventView::NotificationsChanged,
+                        EngineEvent::Notice(notification) => EngineEventView::Notice { notification },
                         EngineEvent::AvatarChanged => EngineEventView::AvatarChanged,
                         EngineEvent::OscStatusChanged => EngineEventView::OscStatusChanged,
                         EngineEvent::MutationChanged => EngineEventView::MutationChanged,

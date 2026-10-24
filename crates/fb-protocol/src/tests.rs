@@ -135,6 +135,7 @@ fn every_message_round_trips() {
             exception: String::new(),
         },
         notify(),
+        ChildMessage::NotifyMessage { level: LogLevel::Error, key: "k".into(), message: "Pairing lost".into() },
         ChildMessage::NotifyClear { key: String::new() },
         ChildMessage::Status { state: -1 },
         ChildMessage::SettingsSchema { json: "{\"fields\":[]}".into() },

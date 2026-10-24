@@ -110,7 +110,10 @@ pub struct ModuleSettingsView {
 #[derive(Clone, Debug)]
 pub enum EngineEvent {
     ModulesChanged,
+    /// The stored messages (`EngineSnapshot::notifications`) changed.
     NotificationsChanged,
+    /// An informational notification: shown once, never part of the snapshot.
+    Notice(NotificationView),
     Log(LogEntry),
     AvatarChanged,
     OscStatusChanged,

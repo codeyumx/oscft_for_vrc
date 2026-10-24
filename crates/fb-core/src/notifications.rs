@@ -1,6 +1,11 @@
-//! Per-module keyed notifications. Pure data structure.
+//! Module notifications. Notices are informational pop-ups and are never stored; messages are keyed per module
+//! and stay until the user dismisses them or the module clears them. Pure data structure.
 
 use crate::types::NotificationView;
+
+/// Stored messages kept per module; beyond this the module's oldest message is dropped, so a chatty module can't
+/// grow the Home page (or memory) without bound.
+pub const MAX_MESSAGES_PER_MODULE: usize = 20;
 
 #[derive(Default)]
 pub struct Notifications {
@@ -9,13 +14,20 @@ pub struct Notifications {
 }
 
 impl Notifications {
+    /// Stored messages, oldest first.
     pub fn list(&self) -> &[NotificationView] {
         &self.items
     }
 
-    /// Adds a notification. A module's notification with the same key (or, for an empty key, the same message
-    /// text) is replaced; the replacement gets a fresh id and moves to the end.
-    pub fn notify(
+    /// Builds a notice (not stored). Empty `key` is replaced by the message text, as for messages.
+    pub fn notice(&mut self, module_id: &str, module_name: &str, level: &str, key: &str, message: &str, time_ms: u64) -> NotificationView {
+        self.view(module_id, module_name, level, key, message, time_ms)
+    }
+
+    /// Stores a message. A module's message with the same key (or, for an empty key, the same message text) is
+    /// replaced; the replacement gets a fresh id and moves to the end. At most [`MAX_MESSAGES_PER_MODULE`] per
+    /// module are kept (oldest dropped).
+    pub fn message(
         &mut self,
         module_id: &str,
         module_name: &str,
@@ -24,20 +36,33 @@ impl Notifications {
         message: &str,
         time_ms: u64,
     ) -> u64 {
-        let key = if key.is_empty() { message } else { key };
-        self.items.retain(|n| !(n.module_id == module_id && n.key == key));
+        let view = self.view(module_id, module_name, level, key, message, time_ms);
+        self.items.retain(|n| !(n.module_id == module_id && n.key == view.key));
+        let own = self.items.iter().filter(|n| n.module_id == module_id).count();
+        if own >= MAX_MESSAGES_PER_MODULE {
+            let mut excess = own + 1 - MAX_MESSAGES_PER_MODULE;
+            self.items.retain(|n| {
+                let drop = excess > 0 && n.module_id == module_id;
+                excess -= usize::from(drop);
+                !drop
+            });
+        }
+        let id = view.id;
+        self.items.push(view);
+        id
+    }
+
+    fn view(&mut self, module_id: &str, module_name: &str, level: &str, key: &str, message: &str, time_ms: u64) -> NotificationView {
         self.next_id += 1;
-        let id = self.next_id;
-        self.items.push(NotificationView {
-            id,
+        NotificationView {
+            id: self.next_id,
             module_id: module_id.to_owned(),
             module_name: module_name.to_owned(),
             level: level.to_owned(),
-            key: key.to_owned(),
+            key: if key.is_empty() { message } else { key }.to_owned(),
             message: message.to_owned(),
             time_ms,
-        });
-        id
+        }
     }
 
     /// Removes the module's notification with `key`; an empty key removes all of the module's notifications.
@@ -66,7 +91,31 @@ mod tests {
     use super::*;
 
     fn n(s: &mut Notifications, module: &str, key: &str, msg: &str) -> u64 {
-        s.notify(module, module, "warning", key, msg, 1)
+        s.message(module, module, "warning", key, msg, 1)
+    }
+
+    #[test]
+    fn notices_are_not_stored() {
+        let mut s = Notifications::default();
+        let a = s.notice("m", "M", "information", "", "Connected", 1);
+        let b = s.notice("m", "M", "information", "", "Connected", 2);
+        assert_eq!(a.key, "Connected");
+        assert_ne!(a.id, b.id);
+        assert!(s.list().is_empty());
+    }
+
+    #[test]
+    fn messages_are_capped_per_module_dropping_the_oldest() {
+        let mut s = Notifications::default();
+        let other = n(&mut s, "quiet", "", "keep me");
+        for i in 0..MAX_MESSAGES_PER_MODULE + 5 {
+            n(&mut s, "chatty", "", &format!("msg {i}"));
+        }
+        let chatty: Vec<_> = s.list().iter().filter(|x| x.module_id == "chatty").map(|x| x.message.as_str()).collect();
+        assert_eq!(chatty.len(), MAX_MESSAGES_PER_MODULE);
+        assert_eq!(chatty[0], "msg 5");
+        assert_eq!(*chatty.last().unwrap(), format!("msg {}", MAX_MESSAGES_PER_MODULE + 4));
+        assert!(s.list().iter().any(|x| x.id == other), "other modules' messages are untouched");
     }
 
     #[test]

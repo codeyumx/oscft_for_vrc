@@ -18,6 +18,7 @@ internal enum MessageType : byte
     SettingsSchema = 0x0A,
     SettingsWrite = 0x0B,
     TeardownDone = 0x0C,
+    NotifyMessage = 0x0D,
 
     // Host -> child
     Init = 0x81,
@@ -201,9 +202,23 @@ internal sealed record Log(LogLevel Level, int EventId, string Category, string 
     }
 }
 
+/// <summary>Informational pop-up; never stored.</summary>
 internal sealed record Notify(LogLevel Level, string Key, string Message) : Message
 {
     public override MessageType Type => MessageType.Notify;
+
+    internal override void WritePayload(ProtocolWriter w)
+    {
+        w.WriteU8((byte)Level);
+        w.WriteString(Key);
+        w.WriteString(Message);
+    }
+}
+
+/// <summary>A message: stays on the Home page until the user dismisses it or the module clears it.</summary>
+internal sealed record NotifyMessage(LogLevel Level, string Key, string Message) : Message
+{
+    public override MessageType Type => MessageType.NotifyMessage;
 
     internal override void WritePayload(ProtocolWriter w)
     {

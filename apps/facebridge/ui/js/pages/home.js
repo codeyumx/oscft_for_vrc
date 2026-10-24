@@ -1,5 +1,6 @@
 // @ts-check
-// Home: engine problems, module notifications, OSC / avatar status and a compact module overview.
+// Home: engine problems, module messages, OSC / avatar status and a compact module overview. Only messages are
+// listed here; informational notices just pop up (popups.js).
 
 import { api } from '../api.js';
 import { append, fmtTime, h, runButton } from '../dom.js';
@@ -21,7 +22,7 @@ const LEVEL_LABEL = /** @type {Record<string, string>} */ ({
 /** @param {NotificationView} n */
 function notificationBanner(n) {
   const level = n.level.toLowerCase();
-  const dismiss = h('button', { type: 'button', class: 'icon', 'aria-label': `Dismiss notification from ${n.moduleName}` }, '\u2715');
+  const dismiss = h('button', { type: 'button', class: 'icon', 'aria-label': `Dismiss message from ${n.moduleName}` }, '\u2715');
   dismiss.addEventListener('click', () => runButton(dismiss, () => api.dismissNotification(n.id).then(() => refresh())));
   return h(
     'div',
@@ -33,6 +34,27 @@ function notificationBanner(n) {
       h('div', { class: 'msg' }, n.message),
     ),
     dismiss,
+  );
+}
+
+/**
+ * Messages, newest first, in a list of bounded height that scrolls, so many messages never push the rest of Home
+ * out of view.
+ * @param {NotificationView[]} messages
+ * @param {number} scrollTop  restored after a re-render
+ */
+function messagesSection(messages, scrollTop) {
+  const dismissAll = h('button', { type: 'button', class: 'small' }, 'Dismiss all');
+  dismissAll.addEventListener('click', () =>
+    runButton(dismissAll, () => Promise.all(messages.map((n) => api.dismissNotification(n.id))).then(() => refresh())),
+  );
+  const list = h('div', { class: 'banner-list message-list', tabindex: '0', 'aria-label': 'Messages' }, ...[...messages].reverse().map(notificationBanner));
+  requestAnimationFrame(() => (list.scrollTop = scrollTop));
+  return h(
+    'section',
+    { class: 'section', 'aria-labelledby': 'notif-h' },
+    h('div', { class: 'card-head' }, h('h2', { id: 'notif-h' }, `Messages (${messages.length})`), messages.length > 1 ? dismissAll : null),
+    list,
   );
 }
 
@@ -138,6 +160,7 @@ export function mountHome(root) {
     const notifications = snap?.notifications ?? [];
     const enabled = modules.filter((m) => m.enabled);
     const banner = engineBanner();
+    const scrollTop = page.querySelector('.message-list')?.scrollTop ?? 0;
 
     page.replaceChildren();
     append(
@@ -145,9 +168,7 @@ export function mountHome(root) {
       [
       h('div', { class: 'page-head' }, h('div', null, h('h1', null, 'Home'), h('p', { class: 'sub' }, 'Tracking status at a glance.'))),
       banner,
-      notifications.length
-        ? h('section', { class: 'section', 'aria-labelledby': 'notif-h' }, h('h2', { id: 'notif-h' }, 'Notifications'), h('div', { class: 'banner-list' }, ...notifications.map(notificationBanner)))
-        : null,
+      notifications.length ? messagesSection(notifications, scrollTop) : null,
       h('div', { class: 'grid-2' }, oscCard(), avatarCard()),
       h(
         'section',

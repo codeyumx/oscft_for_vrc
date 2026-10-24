@@ -46,6 +46,8 @@ const logListeners = new Set();
 const frameListeners = new Set();
 /** @type {Set<() => void>} */
 const logResetListeners = new Set();
+/** @type {Set<(n: import('./types.js').NotificationView) => void>} */
+const noticeListeners = new Set();
 
 /**
  * @template {Set<any>} S
@@ -62,6 +64,8 @@ export const onState = (/** @type {() => void} */ fn) => add(stateListeners, fn)
 export const onLog = (/** @type {(entry: LogEntry) => void} */ fn) => add(logListeners, fn);
 export const onLogReset = (/** @type {() => void} */ fn) => add(logResetListeners, fn);
 export const onFrame = (/** @type {(frame: FrameView) => void} */ fn) => add(frameListeners, fn);
+/** Informational module notifications: delivered once, never part of the snapshot. */
+export const onNotice = (/** @type {(n: import('./types.js').NotificationView) => void} */ fn) => add(noticeListeners, fn);
 
 function emitState() {
   for (const fn of [...stateListeners]) fn();
@@ -116,6 +120,7 @@ export async function init() {
       'engine-event',
       /** @param {EngineEvent} event */ (event) => {
         if (event.kind === 'log') pushLog(event.entry);
+        else if (event.kind === 'notice') for (const fn of [...noticeListeners]) fn(event.notification);
         else scheduleRefresh();
       },
     ),

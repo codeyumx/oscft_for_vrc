@@ -1,10 +1,11 @@
 // @ts-check
-// Pop-ups for what modules need the user to see, on every page: their notifications, their error log entries,
-// and modules that fail with an error. Notifications and error logs respect the module's "Allow notifications"
-// option (the engine already drops notifications from muted modules); failures always show.
+// Pop-ups for what modules need the user to see, on every page: their notices (informational, only ever shown
+// here), their messages (also kept on Home until dismissed), their error log entries, and modules that fail with
+// an error. Notifications and error logs respect the module's "Allow notifications" option (the engine already
+// drops notifications from muted modules); failures always show.
 
 import { popup } from './dom.js';
-import { onLog, onState, state } from './store.js';
+import { onLog, onNotice, onState, state } from './store.js';
 
 /** @typedef {import('./types.js').LogEntry} LogEntry */
 
@@ -16,7 +17,7 @@ const DEDUPE_MS = 60_000;
 const DURATION_MS = /** @type {Record<string, number>} */ ({ information: 6000, warning: 10000, error: 15000, critical: 15000 });
 const MAX_MESSAGE = 400;
 
-/** Keys of notifications already shown (ids restart with each engine, so the key includes time and module). */
+/** Keys of messages already shown (ids restart with each engine, so the key includes time and module). */
 const seenNotifications = new Set();
 /** @type {Map<string, string>} module id -> last run state */
 const lastStates = new Map();
@@ -75,4 +76,5 @@ function onLogEntry(entry) {
 export function initPopups() {
   onState(onSnapshot);
   onLog(onLogEntry);
+  onNotice((n) => show(n.moduleId, n.moduleName, n.level.toLowerCase(), n.message));
 }

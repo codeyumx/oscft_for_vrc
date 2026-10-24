@@ -120,7 +120,7 @@ public class ModuleHostEndToEndTests
         // No code yet: the handler updates the status text and warns.
         host.Send(new SettingsAction("pair"));
         host.Expect<SettingsWrite>(w => (string?)JsonNode.Parse(w.Json)!["pair_status"] == "Enter a code first");
-        Notify warning = host.Expect<Notify>(n => n.Key == "pair");
+        NotifyMessage warning = host.Expect<NotifyMessage>(n => n.Key == "pair");
         Assert.Equal(LogLevel.Warning, warning.Level);
         Assert.Equal("Enter a pairing code before pressing Pair.", warning.Message);
 

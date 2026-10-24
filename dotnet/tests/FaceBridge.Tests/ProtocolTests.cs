@@ -70,6 +70,7 @@ public class ProtocolTests
         VectorFrame(),
         new Log(LogLevel.Error, 7400, "Cat", "message", "System.Exception: x"),
         new Notify(LogLevel.Information, string.Empty, "hi"),
+        new NotifyMessage(LogLevel.Error, "k", "Pairing lost"),
         new NotifyClear("k"),
         new Status(-1),
         new Status(1),

@@ -51,12 +51,13 @@ non-abstract class deriving from `VRCFaceTracking.ExtTrackingModule`; exit 0. Us
 | 0x04 | InitResult | `bool eye`, `bool expression`, `str name`, `u16 image_count`, `image_count × bytes` | Reply to `Init`. Images are the raw bytes of `ModuleInformation.StaticImages` streams (usually PNG). `name` empty if module left it unset. |
 | 0x05 | Frame | see below | Sent after each `Update()` returns, at most once per millisecond. |
 | 0x06 | Log | `level`, `i32 event_id`, `str category`, `str message`, `str exception` | `exception` empty when none. Notification log entries (event 7400) are sent as both `Log` and `Notify`. |
-| 0x07 | Notify | `level`, `str key`, `str message` | Show a notification. Same `key` replaces the previous one from this module; empty `key` = keyed by message text (dedupe). |
-| 0x08 | NotifyClear | `str key` | Remove this module's notification with `key`; empty = remove all of this module's notifications. |
+| 0x07 | Notify | `level`, `str key`, `str message` | Informational pop-up; never stored, fades by itself. |
+| 0x08 | NotifyClear | `str key` | Remove this module's message (`NotifyMessage`) with `key`; empty = remove all of this module's messages. |
 | 0x09 | Status | `i8 state` | `ModuleState` value (-1, 0, 1); sent when the polled `Status` field changes. |
 | 0x0A | SettingsSchema | `str json` | The module declared settings via `FaceBridge.Sdk` (schema below). May be sent again if the module redeclares. |
 | 0x0B | SettingsWrite | `str json` | The module changed its own setting values (object of key → value); host persists and shows them. |
 | 0x0C | TeardownDone | – | `Teardown()` returned; child exits 0 right after. |
+| 0x0D | NotifyMessage | `level`, `str key`, `str message` | A message: stays on the Home page until the user dismisses it or `NotifyClear` removes it. Same `key` replaces the previous one from this module; empty `key` = keyed by message text (dedupe). |
 
 ### Frame payload
 

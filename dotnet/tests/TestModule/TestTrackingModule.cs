@@ -55,12 +55,12 @@ public sealed class TestTrackingModule : ExtTrackingModule
         if (code.Length == 0)
         {
             _settings.SetText("pair_status", "Enter a code first");
-            UserNotifications.Show(Logger, LogLevel.Warning, "Enter a pairing code before pressing Pair.", key: "pair");
+            UserNotifications.ShowMessage(Logger, LogLevel.Warning, "Enter a pairing code before pressing Pair.", key: "pair");
             return;
         }
 
         _settings.SetText("pair_status", $"Paired with code {code}");
-        UserNotifications.Clear("pair");
+        UserNotifications.ClearMessage("pair");
     }
 
     public override void Update()

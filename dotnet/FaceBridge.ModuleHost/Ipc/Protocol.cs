@@ -36,6 +36,7 @@ internal static class Protocol
             MessageType.Frame => Frame.Read(ref r),
             MessageType.Log => new Log((LogLevel)r.ReadU8(), r.ReadI32(), r.ReadString(), r.ReadString(), r.ReadString()),
             MessageType.Notify => new Notify((LogLevel)r.ReadU8(), r.ReadString(), r.ReadString()),
+            MessageType.NotifyMessage => new NotifyMessage((LogLevel)r.ReadU8(), r.ReadString(), r.ReadString()),
             MessageType.NotifyClear => new NotifyClear(r.ReadString()),
             MessageType.Status => new Status(unchecked((sbyte)r.ReadU8())),
             MessageType.SettingsSchema => new SettingsSchema(r.ReadString()),

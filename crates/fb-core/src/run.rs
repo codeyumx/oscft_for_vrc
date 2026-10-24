@@ -761,6 +761,7 @@ fn message_name(m: &ChildMessage) -> &'static str {
         ChildMessage::Frame(_) => "Frame",
         ChildMessage::Log { .. } => "Log",
         ChildMessage::Notify { .. } => "Notify",
+        ChildMessage::NotifyMessage { .. } => "NotifyMessage",
         ChildMessage::NotifyClear { .. } => "NotifyClear",
         ChildMessage::Status { .. } => "Status",
         ChildMessage::SettingsSchema { .. } => "SettingsSchema",
@@ -776,7 +777,8 @@ fn handle_common(inner: &Arc<Inner>, id: &str, ctl: &Arc<RunCtl>, msg: ChildMess
             let text = if exception.is_empty() { message } else { format!("{message}\n{exception}") };
             inner.log(Some(id), level.as_str(), &category, text);
         }
-        ChildMessage::Notify { level, key, message } => inner.notify(id, level.as_str(), &key, &message),
+        ChildMessage::Notify { level, key, message } => inner.notify(id, level.as_str(), &key, &message, false),
+        ChildMessage::NotifyMessage { level, key, message } => inner.notify(id, level.as_str(), &key, &message, true),
         ChildMessage::NotifyClear { key } => inner.clear_notifications(id, &key),
         ChildMessage::Status { state } => {
             inner.update_module(id, |rt| rt.status = Some(state));

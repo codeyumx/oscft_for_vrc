@@ -22,7 +22,7 @@ const MODULE_OPTIONS = [
     key: 'allowNotifications',
     title: 'Notifications',
     label: 'Allow notifications from this module',
-    hint: 'Shows its messages and errors as pop-ups and on the Home page. When off they only go to the Output log. A module that fails is always reported.',
+    hint: 'Shows its notifications and errors as pop-ups, and keeps its messages on the Home page. When off they only go to the Output log. A module that fails is always reported.',
   },
   {
     key: 'requireData',

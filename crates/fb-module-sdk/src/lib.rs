@@ -210,14 +210,20 @@ impl Context {
         self.shared.log(level, message.into());
     }
 
-    /// Shows a notification. The same non-empty `key` replaces this module's previous one; an empty `key`
-    /// deduplicates by message text.
+    /// Shows an informational pop-up that disappears by itself; nothing is kept on the Home page.
     pub fn notify(&self, level: LogLevel, key: &str, message: impl Into<String>) {
         self.shared.send(&ChildMessage::Notify { level, key: key.to_owned(), message: message.into() });
     }
 
-    /// Removes this module's notification with `key`; an empty `key` removes all of them.
-    pub fn clear_notification(&self, key: &str) {
+    /// Shows a message: a pop-up plus an entry on the Home page that stays until the user dismisses it or the
+    /// module clears it. Use it for things the user must act on. The same non-empty `key` replaces this module's
+    /// previous message; an empty `key` deduplicates by message text.
+    pub fn message(&self, level: LogLevel, key: &str, message: impl Into<String>) {
+        self.shared.send(&ChildMessage::NotifyMessage { level, key: key.to_owned(), message: message.into() });
+    }
+
+    /// Removes this module's message with `key`; an empty `key` removes all of them.
+    pub fn clear_message(&self, key: &str) {
         self.shared.send(&ChildMessage::NotifyClear { key: key.to_owned() });
     }
 

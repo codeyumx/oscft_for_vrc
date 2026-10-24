@@ -17,6 +17,7 @@ const STATUS: u8 = 0x09;
 const SETTINGS_SCHEMA: u8 = 0x0A;
 const SETTINGS_WRITE: u8 = 0x0B;
 const TEARDOWN_DONE: u8 = 0x0C;
+const NOTIFY_MESSAGE: u8 = 0x0D;
 // Host -> child.
 const INIT: u8 = 0x81;
 const SETTINGS: u8 = 0x82;
@@ -133,6 +134,11 @@ pub fn encode_child_message(m: &ChildMessage, out: &mut Vec<u8>) -> Result<(), P
         }
         ChildMessage::Notify { level, key, message } => {
             let mut e = Enc::begin(out, NOTIFY);
+            e.u8(*level as u8).str(key).str(message);
+            e.finish()
+        }
+        ChildMessage::NotifyMessage { level, key, message } => {
+            let mut e = Enc::begin(out, NOTIFY_MESSAGE);
             e.u8(*level as u8).str(key).str(message);
             e.finish()
         }
@@ -365,6 +371,7 @@ pub fn read_child_message(
             exception: d.str()?,
         },
         NOTIFY => ChildMessage::Notify { level: d.level()?, key: d.str()?, message: d.str()? },
+        NOTIFY_MESSAGE => ChildMessage::NotifyMessage { level: d.level()?, key: d.str()?, message: d.str()? },
         NOTIFY_CLEAR => ChildMessage::NotifyClear { key: d.str()? },
         STATUS => ChildMessage::Status { state: d.u8()? as i8 },
         SETTINGS_SCHEMA => ChildMessage::SettingsSchema { json: d.str()? },

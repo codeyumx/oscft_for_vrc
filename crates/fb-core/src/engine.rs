@@ -262,9 +262,10 @@ impl Inner {
     }
 
     /// Shows a module notification, unless the user turned notifications off for that module (then it only goes
-    /// to the log).
-    pub fn notify(&self, id: &str, level: &str, key: &str, message: &str) {
-        {
+    /// to the log). A notice (`persistent == false`) is only announced as [`EngineEvent::Notice`]; a message is
+    /// stored in the snapshot until dismissed or cleared.
+    pub fn notify(&self, id: &str, level: &str, key: &str, message: &str, persistent: bool) {
+        let event = {
             let mut st = lock(&self.state);
             let allowed = st.config.modules.iter().find(|m| m.id == id).is_none_or(|m| m.options.allow_notifications);
             if !allowed {
@@ -273,9 +274,14 @@ impl Inner {
                 return;
             }
             let name = st.modules.get(id).map_or_else(|| id.to_owned(), |m| m.display_name(id));
-            st.notifications.notify(id, &name, level, key, message, now_ms());
-        }
-        self.emit(EngineEvent::NotificationsChanged);
+            if persistent {
+                st.notifications.message(id, &name, level, key, message, now_ms());
+                EngineEvent::NotificationsChanged
+            } else {
+                EngineEvent::Notice(st.notifications.notice(id, &name, level, key, message, now_ms()))
+            }
+        };
+        self.emit(event);
     }
 
     pub fn clear_notifications(&self, id: &str, key: &str) {

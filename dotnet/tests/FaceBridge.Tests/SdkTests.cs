@@ -128,7 +128,7 @@ public class SdkTests
         Assert.False(FaceBridgeEnvironment.IsFaceBridge);
         var logger = new CapturingLogger();
         UserNotifications.Show(logger, LogLevel.Warning, "Check your headset", key: "hs");
-        UserNotifications.Clear("hs"); // no-op, must not throw
+        UserNotifications.ClearMessage("hs"); // no-op, must not throw
 
         (LogLevel level, EventId id, string message) = Assert.Single(logger.Entries);
         Assert.Equal(LogLevel.Warning, level);
@@ -276,6 +276,10 @@ public class SdkTests
         }
 
         public void Notify(LogLevel level, string key, string message)
+        {
+        }
+
+        public void NotifyMessage(LogLevel level, string key, string message)
         {
         }
 

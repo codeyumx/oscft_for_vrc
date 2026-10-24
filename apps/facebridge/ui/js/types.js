@@ -145,7 +145,7 @@
 
 /** @typedef {{ schema: { fields: SettingsField[] }, values: Record<string, any> }} ModuleSettingsView */
 
-/** @typedef {{ kind: 'modulesChanged'|'notificationsChanged'|'avatarChanged'|'oscStatusChanged'|'mutationChanged' } | { kind: 'log', entry: LogEntry }} EngineEvent */
+/** @typedef {{ kind: 'modulesChanged'|'notificationsChanged'|'avatarChanged'|'oscStatusChanged'|'mutationChanged' } | { kind: 'log', entry: LogEntry } | { kind: 'notice', notification: NotificationView }} EngineEvent */
 
 /** @typedef {{ enabled: boolean, minCutoff: number, beta: number, derivativeCutoff: number }} FilterChannel */
 /** @typedef {{ min: number, max: number }} AdjustRange */

@@ -108,7 +108,7 @@ fn lifecycle_spawn_hello_loaded_init_frames_teardown() {
         json!({
             "supportsEye": true, "claimEye": true, "name": "Reported Name",
             "images": [[1, 2, 3], [9]], "leftGazeX": 0.25, "jaw": 0.5,
-            "notify": [{ "key": "k", "message": "hello there" }],
+            "messages": [{ "key": "k", "message": "hello there" }],
             "schema": r#"{"fields":[{"key":"port","label":"Port","type":"int","default":1,"min":1,"max":10}]}"#,
         }),
     );
@@ -165,22 +165,35 @@ fn lifecycle_spawn_hello_loaded_init_frames_teardown() {
 }
 
 #[test]
-fn notifications_are_keyed_and_cleared_when_the_module_stops() {
+fn messages_are_keyed_and_cleared_when_the_module_stops_and_notices_are_never_stored() {
     let h = Harness::new();
+    let events = h.engine.subscribe();
     let id = h.install(
         "Notifier",
-        json!({ "notify": [
-            { "key": "a", "message": "first" }, { "key": "a", "message": "second" },
-            { "key": "", "message": "same text" }, { "key": "", "message": "same text" }
-        ] }),
+        json!({
+            "messages": [
+                { "key": "a", "message": "first" }, { "key": "a", "message": "second" },
+                { "key": "", "message": "same text" }, { "key": "", "message": "same text" }
+            ],
+            "notify": [{ "key": "", "message": "just so you know" }],
+        }),
     );
-    let snap = h.wait("deduped notifications", |s| s.notifications.len() == 2 && has_log(s, "init"));
+    let snap = h.wait("deduped messages", |s| s.notifications.len() == 2 && has_log(s, "init"));
     let mut msgs: Vec<_> = snap.notifications.iter().map(|n| n.message.as_str()).collect();
     msgs.sort_unstable();
-    assert_eq!(msgs, ["same text", "second"]);
+    assert_eq!(msgs, ["same text", "second"], "the notice is not part of the snapshot");
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let notice = loop {
+        match events.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(EngineEvent::Notice(n)) => break n,
+            Ok(_) => {}
+            Err(e) => panic!("no Notice event: {e}"),
+        }
+    };
+    assert_eq!((notice.message.as_str(), notice.module_id.as_str()), ("just so you know", id.as_str()));
     h.engine.set_module_enabled(&id, false).unwrap();
     let snap = h.wait_state(&id, ModuleRunState::Stopped);
-    assert!(snap.notifications.is_empty(), "a stopped module's notifications are removed");
+    assert!(snap.notifications.is_empty(), "a stopped module's messages are removed");
 }
 
 #[test]
@@ -221,7 +234,7 @@ fn a_crashing_module_releases_its_claim_and_zeroes_its_data() {
     let h = Harness::new();
     let id = h.install(
         "Crasher",
-        json!({ "supportsEye": true, "claimEye": true, "crashAfterFrames": 30, "notify": [{ "key": "x", "message": "m" }] }),
+        json!({ "supportsEye": true, "claimEye": true, "crashAfterFrames": 30, "messages": [{ "key": "x", "message": "m" }] }),
     );
     let snap = h.wait_state(&id, ModuleRunState::Failed);
     let m = module(&snap, &id);
@@ -350,7 +363,7 @@ fn button_press_reaches_the_module_and_its_display_text_is_shown_but_never_store
 #[test]
 fn notifications_can_be_turned_off_per_module_and_the_choice_persists() {
     let h = Harness::new();
-    let quiet = h.install("Quiet", json!({ "claimEye": true, "notify": [{ "key": "k", "message": "first" }] }));
+    let quiet = h.install("Quiet", json!({ "claimEye": true, "messages": [{ "key": "k", "message": "first" }] }));
     let snap = h.wait("first notification", |s| s.notifications.len() == 1);
     assert!(module(&snap, &quiet).options.allow_notifications, "on by default");
 

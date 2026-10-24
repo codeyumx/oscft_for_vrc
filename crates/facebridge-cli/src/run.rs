@@ -72,6 +72,7 @@ impl Printer {
             }
             EngineEvent::ModulesChanged => self.modules_changed(&engine.snapshot()),
             EngineEvent::NotificationsChanged => self.notifications_changed(&engine.snapshot()),
+            EngineEvent::Notice(n) => println!("NOTICE [{}] {}: {}", n.level, n.module_name, n.message),
             EngineEvent::OscStatusChanged => self.osc_changed(&engine.snapshot(), false),
             EngineEvent::AvatarChanged => self.avatar_changed(&engine.snapshot()),
             // Nothing to print: settings changes are made through the CLI itself or the desktop app.
@@ -98,7 +99,7 @@ impl Printer {
     fn notifications_changed(&mut self, snap: &EngineSnapshot) {
         for n in &snap.notifications {
             if let std::collections::hash_map::Entry::Vacant(slot) = self.notifications.entry(n.id) {
-                println!("NOTIFY [{}] {}: {}", n.level, n.module_name, n.message);
+                println!("MESSAGE [{}] {}: {}", n.level, n.module_name, n.message);
                 slot.insert(n.clone());
             }
         }
@@ -106,7 +107,7 @@ impl Printer {
             self.notifications.keys().copied().filter(|id| !snap.notifications.iter().any(|n| n.id == *id)).collect();
         for id in gone {
             if let Some(n) = self.notifications.remove(&id) {
-                println!("NOTIFY cleared: {}: {}", n.module_name, n.message);
+                println!("MESSAGE cleared: {}: {}", n.module_name, n.message);
             }
         }
     }

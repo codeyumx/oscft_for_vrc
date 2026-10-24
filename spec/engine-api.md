@@ -22,7 +22,8 @@ pub const PROTOCOL_VERSION: u16 = 1;
 pub enum ChildMessage { Hello { version: u16, token: String, pid: u32 }, Loaded { module_type: String, supports_eye: bool, supports_expression: bool },
     LoadFailed { reason: String }, InitResult { eye: bool, expression: bool, name: String, images: Vec<Vec<u8>> },
     Frame(Box<FrameMessage>), Log { level: LogLevel, event_id: i32, category: String, message: String, exception: String },
-    Notify { level: LogLevel, key: String, message: String }, NotifyClear { key: String }, Status { state: i8 },
+    Notify { level: LogLevel, key: String, message: String }, NotifyMessage { level: LogLevel, key: String, message: String },
+    NotifyClear { key: String }, Status { state: i8 },
     SettingsSchema { json: String }, SettingsWrite { json: String }, TeardownDone }
 pub enum HostMessage { Init { eye_available: bool, expression_available: bool }, Settings { json: String }, Teardown }
 pub struct FrameMessage { pub seq: u64, pub flags: FrameFlags, pub frame: fb_tracking::TrackingFrame }
@@ -98,7 +99,7 @@ impl Engine {
     pub fn shutdown(&self);   // tears down all modules (Teardown, 5 s, then kill), stops OSC; idempotent
 }
 
-pub enum EngineEvent { ModulesChanged, NotificationsChanged, Log(LogEntry), AvatarChanged, OscStatusChanged, MutationChanged }
+pub enum EngineEvent { ModulesChanged, NotificationsChanged, Notice(NotificationView), Log(LogEntry), AvatarChanged, OscStatusChanged, MutationChanged }
 pub struct EngineSnapshot { pub modules: Vec<ModuleView>, pub notifications: Vec<NotificationView>,
     pub avatar: Option<fb_osc::AvatarInfo>, pub osc: fb_osc::OscStatus, pub osc_config: fb_osc::OscConfig,
     pub logs: Vec<LogEntry> /* ring buffer, newest last, max 1000 */ }
@@ -179,9 +180,11 @@ claimer first). Each `Frame` → update merged state → mutate (`spec/mutation.
 
 ### Notifications
 
-Per module, keyed (`Notify.key`, or the message text when key is empty). Same key replaces. `NotifyClear` removes.
-Dismissed by the user via `dismiss_notification`. All of a module's notifications are removed when it stops or
-restarts.
+Two kinds. `Notify` is a notice: informational, never stored, announced once as `EngineEvent::Notice` (the UI pops
+it up and lets it fade). `NotifyMessage` is a message: stored in `EngineSnapshot::notifications` per module, keyed
+(`key`, or the message text when key is empty), same key replaces, at most 20 per module (oldest dropped).
+`NotifyClear` removes messages. Dismissed by the user via `dismiss_notification`. All of a module's messages are
+removed when it stops or restarts.
 
 ## fb-mutate and the mutation API
 

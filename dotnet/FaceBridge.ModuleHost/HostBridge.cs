@@ -22,6 +22,12 @@ internal sealed class HostBridge : IModuleHostBridge
         _channel.Send(new Ipc.Notify(level, key, message));
     }
 
+    public void NotifyMessage(LogLevel level, string key, string message)
+    {
+        _channel.Send(new Log(level, 7400, "FaceBridge.Sdk", message, string.Empty));
+        _channel.Send(new Ipc.NotifyMessage(level, key, message));
+    }
+
     public void ClearNotifications(string key) => _channel.Send(new NotifyClear(key));
 
     public void PublishSettingsSchema(string schemaJson) => _channel.Send(new SettingsSchema(schemaJson));

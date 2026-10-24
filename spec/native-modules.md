@@ -54,7 +54,8 @@ native and .NET modules merge, calibrate and map to OSC the same way.
 | `teardown(ctx)` | once, after `run` returned, when OSCFT stops an initialized module | release the device |
 
 `Context`: `send_frame` (flags from the granted claims; head flag when any head field is non-zero; frames at least
-1 ms apart), `sleep` (wakes early on stop), `log`, `notify`, `clear_notification`, `set_status`,
+1 ms apart), `sleep` (wakes early on stop), `log`, `notify` (transient pop-up), `message` (stays on Home until
+dismissed), `clear_message`, `set_status`,
 `declare_settings`, `write_settings`, `settings`, `try_event`/`wait_event` (`SettingsChanged`, `Action(key)`),
 `data_dir`.
 

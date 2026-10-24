@@ -11,10 +11,13 @@ namespace FaceBridge.Sdk.Hosting;
 [EditorBrowsable(EditorBrowsableState.Never)]
 public interface IModuleHostBridge
 {
-    /// <summary>Show a notification; <paramref name="key"/> is empty when the module gave none.</summary>
+    /// <summary>Show an informational pop-up; <paramref name="key"/> is empty when the module gave none.</summary>
     void Notify(LogLevel level, string key, string message);
 
-    /// <summary>Remove the notification with <paramref name="key"/>; empty removes all of this module's.</summary>
+    /// <summary>Show a message that stays until dismissed or cleared; <paramref name="key"/> may be empty.</summary>
+    void NotifyMessage(LogLevel level, string key, string message);
+
+    /// <summary>Remove the message with <paramref name="key"/>; empty removes all of this module's.</summary>
     void ClearNotifications(string key);
 
     /// <summary>The module declared its settings; <paramref name="schemaJson"/> follows the FaceBridge schema.</summary>
