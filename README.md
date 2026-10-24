@@ -77,6 +77,10 @@ cargo build -p facebridge-cli      # headless:   target/debug/facebridge-cli
 The publish scripts use `FACEBRIDGE_DOTNET`, then a user-local .NET 10 SDK (`%LOCALAPPDATA%\dotnet10` on Windows,
 `~/.local/share/dotnet10` on Linux), then `dotnet` on `PATH`; `dotnet/global.json` requires SDK 10.0.402 or later.
 
+The optional GitHub Actions pipeline `.github/workflows/release.yml` does the same on GitHub: it runs only when a
+`v*` tag matching the `Cargo.toml` version is pushed (or when started by hand under Actions → Release), runs the Rust
+and .NET tests, builds all assets and uploads them to a draft release for that tag.
+
 Release assets: `scripts/release.sh` (Linux, with `cargo-xwin` for the Windows build) writes to `dist/`:
 
 | File | Contents |
