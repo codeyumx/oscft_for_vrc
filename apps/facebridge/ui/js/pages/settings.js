@@ -102,7 +102,7 @@ export function mountSettings(root) {
     'section',
     { class: 'form card', 'aria-labelledby': 'updates-set-h' },
     h('h2', { id: 'updates-set-h' }, 'Module updates'),
-    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Updates'), h('div', { class: 'control' }, checkUpdatesSwitch), h('div', { class: 'hint', id: 's-updates-hint' }, 'Asks GitHub for the latest release of each module that is published there, and shows "Update available" on the Modules page. Checked at startup, after installs, and every 6 hours.')),
+    h('div', { class: 'field' }, h('span', { class: 'label' }, 'Updates'), h('div', { class: 'control' }, checkUpdatesSwitch), h('div', { class: 'hint', id: 's-updates-hint' }, 'Asks GitHub or GitLab for the latest release of each module that is published there, and shows "Update available" on the Modules page. Checked at startup, after installs, and every 6 hours.')),
   );
 
   const windowCard = h(

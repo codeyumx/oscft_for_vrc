@@ -18,5 +18,5 @@ pub use config::{EngineConfig, ModuleEntry, ModuleOptions, default_data_dir, loa
 pub use engine::{Engine, LOG_CAPACITY, ModuleId};
 pub use host::{HOST_ENV_VAR, discover_module_host};
 pub use types::{
-    EngineEvent, EngineSnapshot, LogEntry, ModuleRunState, ModuleSettingsView, ModuleView, NotificationView,
+    EngineEvent, EngineSnapshot, LogEntry, ModuleRunState, ModuleSettingsView, ModuleView, NotificationView, SourceRepo,
 };

@@ -103,9 +103,10 @@ every frame before it is sent. They are stored in `config.json` (`mutation`), le
 `calibration show`, `calibration reset [Shape]`.
 
 Module update check (Settings page, on by default, stored in `app-settings.json` in the data folder): for each
-module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub repository, the app asks the GitHub
-API for the latest release at startup, after installs and every 6 hours, and shows "Update available" on the
-module's card when the release tag is a higher version than the module's `Version`.
+module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub repository or a GitLab project
+(gitlab.com, or a self-hosted GitLab whose host name starts with `gitlab.`), the app asks that site's API for the
+latest release at startup, after installs and every 6 hours, and shows "Update available" on the module's card when
+the release tag is a higher version than the module's `Version`.
 
 ## Tests
 
@@ -200,8 +201,9 @@ UserNotifications.Clear("no-headset");
 
 `FaceBridgeEnvironment.IsFaceBridge` tells the module which host it runs in.
 
-To get update notices, publish GitHub releases tagged with the version (`v1.2.0` or `1.2.0`) and set `DownloadUrl`
-or `ModulePageUrl` in `module.json` to the repository.
+To get update notices, publish GitHub or GitLab releases tagged with the version (`v1.2.0` or `1.2.0`) and set
+`DownloadUrl` or `ModulePageUrl` in `module.json` to the repository (GitLab subgroups work, for example
+`https://gitlab.com/group/subgroup/project`).
 
 ## Module authors: native modules (Rust)
 

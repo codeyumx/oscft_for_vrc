@@ -2,6 +2,7 @@
 //! module.json handling.
 
 use crate::config::Paths;
+use crate::types::SourceRepo;
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 use std::fs;
@@ -62,10 +63,10 @@ impl ModuleMeta {
         Ok(Self::from_value(&v))
     }
 
-    /// The GitHub repository the module is published from, as `owner/repo`: taken from `DownloadUrl`, else
-    /// `ModulePageUrl`. `None` when neither points at github.com.
-    pub fn source_repo(&self) -> Option<String> {
-        [&self.download_url, &self.module_page_url].into_iter().flatten().find_map(|u| github_repo(u))
+    /// Where the module is published: taken from `DownloadUrl`, else `ModulePageUrl`. `None` when neither points at
+    /// a GitHub repository or a GitLab project.
+    pub fn source_repo(&self) -> Option<SourceRepo> {
+        [&self.download_url, &self.module_page_url].into_iter().flatten().find_map(|u| source_repo_of(u))
     }
 }
 
@@ -85,21 +86,43 @@ fn is_plain_file_name(name: &str) -> bool {
     !name.contains(['/', '\\']) && name != ".." && name != "."
 }
 
-/// `owner/repo` from any `https://github.com/<owner>/<repo>[.git][/...]` URL.
-fn github_repo(url: &str) -> Option<String> {
+/// The repository of a `https://github.com/<owner>/<repo>[.git][/...]` URL, or of a
+/// `https://<gitlab host>/<group>[/<subgroup>...]/<project>[.git][/-/...]` URL. GitLab hosts are gitlab.com and hosts
+/// named `gitlab.*` (self-hosted instances such as gitlab.freedesktop.org).
+fn source_repo_of(url: &str) -> Option<SourceRepo> {
     let rest = url.trim();
     let rest = rest.strip_prefix("https://").or_else(|| rest.strip_prefix("http://"))?;
     let rest = rest.strip_prefix("www.").unwrap_or(rest);
     let (host, path) = rest.split_once('/')?;
-    if !host.eq_ignore_ascii_case("github.com") {
+    let host = host.to_ascii_lowercase();
+    let path = path.split(['?', '#']).next().unwrap_or_default();
+    let valid = |s: &str| {
+        !s.is_empty() && s != "." && s != ".." && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    let mut segments: Vec<&str> = if host == "github.com" {
+        path.split('/').take(2).collect()
+    } else if host == "gitlab.com" || host.starts_with("gitlab.") {
+        // Everything after `/-/` (releases, package files) and old-style `/uploads/` links is not part of the path.
+        path.split('/').take_while(|s| *s != "-" && *s != "uploads").filter(|s| !s.is_empty()).collect()
+    } else {
+        return None;
+    };
+    if let Some(last) = segments.last_mut() {
+        *last = last.strip_suffix(".git").unwrap_or(last);
+    }
+    if segments.len() < 2 || !segments.iter().all(|s| valid(s)) {
         return None;
     }
-    let mut parts = path.split(['/', '?', '#']);
-    let owner = parts.next()?;
-    let repo = parts.next()?;
-    let repo = repo.strip_suffix(".git").unwrap_or(repo);
-    let valid = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    (valid(owner) && valid(repo) && repo != "." && repo != "..").then(|| format!("{owner}/{repo}"))
+    let path = segments.join("/");
+    Some(if host == "github.com" {
+        SourceRepo::Github { path }
+    } else {
+        // The REST API lives under /api; that is never a group.
+        if segments[0] == "api" {
+            return None;
+        }
+        SourceRepo::Gitlab { host, path }
+    })
 }
 
 /// A fully validated install waiting in a temp directory; [`commit`] moves it into place. Dropping it
@@ -582,25 +605,44 @@ mod tests {
     }
 
     #[test]
-    fn source_repo_prefers_download_url_and_accepts_only_github_repo_urls() {
+    fn source_repo_prefers_download_url_and_accepts_only_github_and_gitlab_repo_urls() {
         let meta = |download: Option<&str>, page: Option<&str>| ModuleMeta {
             download_url: download.map(Into::into),
             module_page_url: page.map(Into::into),
             ..Default::default()
         };
         let repo = |download, page| meta(download, page).source_repo();
+        let github = |path: &str| Some(SourceRepo::Github { path: path.into() });
+        let gitlab = |host: &str, path: &str| Some(SourceRepo::Gitlab { host: host.into(), path: path.into() });
         assert_eq!(
             repo(
                 Some("https://github.com/codeyumx/PicoFaceTracking/releases/latest/download/Pico4FaceTracking-VRCFT.zip"),
                 Some("https://github.com/someone/else"),
-            )
-            .as_deref(),
-            Some("codeyumx/PicoFaceTracking"),
+            ),
+            github("codeyumx/PicoFaceTracking"),
         );
-        assert_eq!(repo(None, Some("https://github.com/sasaken1102r/VRCFT-FrameEyeOSC")).as_deref(), Some("sasaken1102r/VRCFT-FrameEyeOSC"));
-        assert_eq!(repo(Some("https://example.com/m.zip"), Some("https://www.github.com/a/b.git#readme")).as_deref(), Some("a/b"));
-        assert_eq!(repo(Some("https://github.com/a/b?tab=readme"), None).as_deref(), Some("a/b"));
-        for bad in ["https://github.com/onlyowner", "https://github.com//repo", "https://gist.github.com/a/b", "ftp://github.com/a/b", "https://github.com/a/.."] {
+        assert_eq!(repo(None, Some("https://github.com/sasaken1102r/VRCFT-FrameEyeOSC")), github("sasaken1102r/VRCFT-FrameEyeOSC"));
+        assert_eq!(repo(Some("https://example.com/m.zip"), Some("https://www.github.com/a/b.git#readme")), github("a/b"));
+        assert_eq!(repo(Some("https://github.com/a/b?tab=readme"), None), github("a/b"));
+        // GitLab: subgroups, release download links, self-hosted gitlab.* hosts.
+        assert_eq!(
+            repo(Some("https://gitlab.com/group/sub/project/-/releases/permalink/latest/downloads/m.zip"), None),
+            gitlab("gitlab.com", "group/sub/project"),
+        );
+        assert_eq!(repo(None, Some("https://GitLab.com/a/b.git")), gitlab("gitlab.com", "a/b"));
+        assert_eq!(repo(Some("https://gitlab.com/a/b/uploads/0123abcd/m.zip"), None), gitlab("gitlab.com", "a/b"));
+        assert_eq!(repo(None, Some("https://gitlab.freedesktop.org/team/tool?x=1")), gitlab("gitlab.freedesktop.org", "team/tool"));
+        for bad in [
+            "https://github.com/onlyowner",
+            "https://github.com//repo",
+            "https://gist.github.com/a/b",
+            "ftp://github.com/a/b",
+            "https://github.com/a/..",
+            "https://gitlab.com/onlygroup",
+            "https://gitlab.com/-/project/12/uploads/x/m.zip",
+            "https://gitlab.com/api/v4/projects/12/packages",
+            "https://mygitlab.example/a/b",
+        ] {
             assert_eq!(repo(Some(bad), None), None, "{bad}");
         }
         assert_eq!(repo(None, None), None);

@@ -104,7 +104,8 @@ pub struct EngineSnapshot { pub modules: Vec<ModuleView>, pub notifications: Vec
     pub logs: Vec<LogEntry> /* ring buffer, newest last, max 1000 */ }
 pub struct ModuleView { pub id: String, pub name: String, pub version: Option<String>, pub author: Option<String>,
     pub description: Option<String>, pub usage: Option<String>, pub page_url: Option<String>,
-    pub source_repo: Option<String> /* GitHub "owner/repo" from module.json DownloadUrl, else ModulePageUrl */,
+    pub source_repo: Option<SourceRepo> /* from module.json DownloadUrl, else ModulePageUrl: Github { path: "owner/repo" }
+        or Gitlab { host, path: "group/sub/project" } (gitlab.com or a gitlab.* host); JSON {"forge":"github"|"gitlab",...} */,
     pub options: ModuleOptions, pub enabled: bool, pub state: ModuleRunState, pub supports: Claims, pub claims: Claims,
     pub status: Option<i8>, pub last_error: Option<String>, pub has_settings: bool,
     pub settings_rev: u64 /* changes when the setting values change (user, module, redeclaration) */, pub image_count: usize }

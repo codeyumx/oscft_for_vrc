@@ -29,8 +29,8 @@ pub struct ModuleView {
     pub description: Option<String>,
     pub usage: Option<String>,
     pub page_url: Option<String>,
-    /// GitHub `owner/repo` the module is released from (from `module.json` `DownloadUrl` / `ModulePageUrl`).
-    pub source_repo: Option<String>,
+    /// Where the module's releases are published (from `module.json` `DownloadUrl` / `ModulePageUrl`).
+    pub source_repo: Option<SourceRepo>,
     /// Options FaceBridge offers for every module (stored in `config.json`).
     pub options: ModuleOptions,
     pub enabled: bool,
@@ -43,6 +43,26 @@ pub struct ModuleView {
     /// Changes whenever the module's setting values change (user edit, module write, redeclaration).
     pub settings_rev: u64,
     pub image_count: usize,
+}
+
+/// A repository whose releases the update check asks for. Serializes as `{"forge":"github","path":"owner/repo"}` or
+/// `{"forge":"gitlab","host":"gitlab.com","path":"group/subgroup/project"}`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[serde(tag = "forge", rename_all = "lowercase")]
+pub enum SourceRepo {
+    /// `owner/repo` on github.com.
+    Github { path: String },
+    /// A project path (with any subgroups) on gitlab.com or a self-hosted GitLab whose host name starts with `gitlab.`.
+    Gitlab { host: String, path: String },
+}
+
+impl std::fmt::Display for SourceRepo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Github { path } => write!(f, "github.com/{path}"),
+            Self::Gitlab { host, path } => write!(f, "{host}/{path}"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

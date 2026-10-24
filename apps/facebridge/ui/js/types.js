@@ -15,7 +15,7 @@
  * @property {string|null} description
  * @property {string|null} usage
  * @property {string|null} pageUrl
- * @property {string|null} sourceRepo  GitHub "owner/repo" the module is released from
+ * @property {{forge: 'github', path: string} | {forge: 'gitlab', host: string, path: string} | null} sourceRepo  where the module is released (GitHub or GitLab)
  * @property {ModuleOptions} options  options FaceBridge offers for every module
  * @property {boolean} enabled
  * @property {ModuleRunState} state

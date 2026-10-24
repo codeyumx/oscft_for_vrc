@@ -1,4 +1,4 @@
-//! Module update check: asks GitHub for the latest release of each installed module's source repository
+//! Module update check: asks GitHub or GitLab for the latest release of each installed module's source repository
 //! (`ModuleView::source_repo`) and reports modules whose installed version is older. Switched on and off in
 //! `<data_dir>/app-settings.json`, which belongs to the app; `config.json` is owned by the running engine.
 
@@ -9,7 +9,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use fb_core::ModuleView;
+use fb_core::{ModuleView, SourceRepo};
 use serde::{Deserialize, Serialize};
 
 const SETTINGS_FILE: &str = "app-settings.json";
@@ -77,7 +77,7 @@ struct Checked {
 
 pub struct UpdateChecker {
     enabled: AtomicBool,
-    checked: Mutex<HashMap<String, Checked>>,
+    checked: Mutex<HashMap<SourceRepo, Checked>>,
 }
 
 impl UpdateChecker {
@@ -112,10 +112,10 @@ impl UpdateChecker {
             .collect()
     }
 
-    /// Asks GitHub about every repository in `repos` that is due, and forgets repositories no longer installed.
-    /// Blocking (network). Returns whether any known release changed.
-    pub fn check(&self, repos: &BTreeSet<String>) -> bool {
-        let due: Vec<String> = {
+    /// Asks GitHub / GitLab about every repository in `repos` that is due, and forgets repositories no longer
+    /// installed. Blocking (network). Returns whether any known release changed.
+    pub fn check(&self, repos: &BTreeSet<SourceRepo>) -> bool {
+        let due: Vec<SourceRepo> = {
             let mut checked = self.checked.lock().unwrap_or_else(PoisonError::into_inner);
             checked.retain(|repo, _| repos.contains(repo));
             let now = Instant::now();
@@ -151,18 +151,27 @@ impl UpdateChecker {
     }
 }
 
+fn latest_release(agent: &ureq::Agent, repo: &SourceRepo) -> Result<Option<Release>> {
+    match repo {
+        SourceRepo::Github { path } => github_latest_release(agent, path),
+        SourceRepo::Gitlab { host, path } => gitlab_latest_release(agent, host, path),
+    }
+}
+
+const USER_AGENT: &str = concat!("FaceBridge/", env!("CARGO_PKG_VERSION"));
+
 /// `GET /repos/{owner}/{repo}/releases/latest` (newest non-draft, non-prerelease release).
-fn latest_release(agent: &ureq::Agent, repo: &str) -> Result<Option<Release>> {
+fn github_latest_release(agent: &ureq::Agent, path: &str) -> Result<Option<Release>> {
     #[derive(Deserialize)]
     struct Body {
         tag_name: String,
         html_url: String,
     }
     let mut response = agent
-        .get(&format!("https://api.github.com/repos/{repo}/releases/latest"))
+        .get(&format!("https://api.github.com/repos/{path}/releases/latest"))
         .header("Accept", "application/vnd.github+json")
         .header("X-GitHub-Api-Version", "2022-11-28")
-        .header("User-Agent", concat!("FaceBridge/", env!("CARGO_PKG_VERSION")))
+        .header("User-Agent", USER_AGENT)
         .call()
         .context("request failed")?;
     match response.status().as_u16() {
@@ -172,6 +181,46 @@ fn latest_release(agent: &ureq::Agent, repo: &str) -> Result<Option<Release>> {
         }
         404 => Ok(None),
         status => anyhow::bail!("GitHub answered HTTP {status}"),
+    }
+}
+
+/// GitLab's "latest release" endpoint for a project path. The path goes in URL-encoded (`group%2Fsub%2Fproject`);
+/// its segments only hold characters that need no other escaping (see `fb_core::ModuleView::source_repo`).
+fn gitlab_latest_release_url(host: &str, path: &str) -> String {
+    format!("https://{host}/api/v4/projects/{}/releases/permalink/latest", path.replace('/', "%2F"))
+}
+
+/// `GET /projects/:id/releases/permalink/latest` (the most recently released release). 404 when the project has no
+/// release or is not public.
+fn gitlab_latest_release(agent: &ureq::Agent, host: &str, path: &str) -> Result<Option<Release>> {
+    #[derive(Deserialize)]
+    struct Links {
+        #[serde(rename = "self")]
+        self_url: Option<String>,
+    }
+    #[derive(Deserialize)]
+    struct Body {
+        tag_name: String,
+        #[serde(rename = "_links")]
+        links: Option<Links>,
+    }
+    let mut response = agent
+        .get(&gitlab_latest_release_url(host, path))
+        .header("Accept", "application/json")
+        .header("User-Agent", USER_AGENT)
+        .call()
+        .context("request failed")?;
+    match response.status().as_u16() {
+        200 => {
+            let body: Body = response.body_mut().read_json().context("unexpected response")?;
+            let url = body
+                .links
+                .and_then(|l| l.self_url)
+                .unwrap_or_else(|| format!("https://{host}/{path}/-/releases/{}", body.tag_name));
+            Ok(Some(Release { tag: body.tag_name, url }))
+        }
+        404 => Ok(None),
+        status => anyhow::bail!("GitLab ({host}) answered HTTP {status}"),
     }
 }
 
@@ -225,7 +274,9 @@ mod tests {
 
     #[test]
     fn updates_lists_only_modules_behind_their_release_and_nothing_when_off() {
-        let module = |id: &str, version: Option<&str>, repo: Option<&str>| ModuleView {
+        let github = |path: &str| SourceRepo::Github { path: path.into() };
+        let gitlab = |path: &str| SourceRepo::Gitlab { host: "gitlab.com".into(), path: path.into() };
+        let module = |id: &str, version: Option<&str>, repo: Option<SourceRepo>| ModuleView {
             id: id.into(),
             name: id.into(),
             version: version.map(Into::into),
@@ -233,7 +284,7 @@ mod tests {
             description: None,
             usage: None,
             page_url: None,
-            source_repo: repo.map(Into::into),
+            source_repo: repo,
             enabled: true,
             options: Default::default(),
             state: fb_core::ModuleRunState::Running,
@@ -249,23 +300,38 @@ mod tests {
         {
             let mut checked = checker.checked.lock().unwrap();
             let release = |tag: &str| Checked { due: Instant::now(), release: Some(Release { tag: tag.into(), url: format!("https://x/{tag}") }) };
-            checked.insert("a/old".into(), release("v2.0.0"));
-            checked.insert("a/current".into(), release("1.0.0"));
-            checked.insert("a/none".into(), Checked { due: Instant::now(), release: None });
+            checked.insert(github("a/old"), release("v2.0.0"));
+            checked.insert(github("a/current"), release("1.0.0"));
+            checked.insert(github("a/none"), Checked { due: Instant::now(), release: None });
+            checked.insert(gitlab("g/sub/new"), release("3.1"));
         }
         let modules = [
-            module("behind", Some("1.5"), Some("a/old")),
-            module("current", Some("1.0.0"), Some("a/current")),
-            module("no-release", Some("1.0"), Some("a/none")),
-            module("not-checked-yet", Some("1.0"), Some("a/unchecked")),
-            module("no-version", None, Some("a/old")),
+            module("behind", Some("1.5"), Some(github("a/old"))),
+            module("current", Some("1.0.0"), Some(github("a/current"))),
+            module("no-release", Some("1.0"), Some(github("a/none"))),
+            module("not-checked-yet", Some("1.0"), Some(github("a/unchecked"))),
+            module("no-version", None, Some(github("a/old"))),
             module("no-repo", Some("0.1"), None),
+            module("gitlab-behind", Some("3.0"), Some(gitlab("g/sub/new"))),
+            // Same path on the other forge is a different repository.
+            module("gitlab-unchecked", Some("1.0"), Some(gitlab("a/old"))),
         ];
         assert_eq!(
             checker.updates(&modules),
-            vec![ModuleUpdate { module_id: "behind".into(), latest_version: "v2.0.0".into(), release_url: "https://x/v2.0.0".into() }],
+            vec![
+                ModuleUpdate { module_id: "behind".into(), latest_version: "v2.0.0".into(), release_url: "https://x/v2.0.0".into() },
+                ModuleUpdate { module_id: "gitlab-behind".into(), latest_version: "3.1".into(), release_url: "https://x/3.1".into() },
+            ],
         );
         checker.set_enabled(false);
         assert!(checker.updates(&modules).is_empty());
+    }
+
+    #[test]
+    fn gitlab_project_path_is_url_encoded_for_the_api() {
+        assert_eq!(
+            gitlab_latest_release_url("gitlab.example.org", "group/sub/project"),
+            "https://gitlab.example.org/api/v4/projects/group%2Fsub%2Fproject/releases/permalink/latest",
+        );
     }
 }
