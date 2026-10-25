@@ -168,7 +168,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .switch { position: relative; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
 .switch input { position: absolute; left: 0; top: 0; opacity: 0; width: 1px; height: 1px; margin: 0; }
 .switch .track {
-  width: 36px; height: 20px; border-radius: 10px; background: var(--border-strong); position: relative; transition: background .12s;
+  flex: none; width: 36px; height: 20px; border-radius: 10px; background: var(--border-strong); position: relative; transition: background .12s;
 }
 .switch .track::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
@@ -244,13 +244,26 @@ input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px;
 .module-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
 .module-body { display: flex; flex-direction: column; gap: 8px; }
 .module-usage { white-space: pre-wrap; color: var(--text-dim); font-size: 12.5px; }
-details.settings > summary { cursor: pointer; font-weight: 500; padding: 4px 0; }
-details.settings[open] > summary { margin-bottom: 8px; }
+/* Module settings disclosure: a bordered panel whose header row toggles it, with a chevron instead of the native marker. */
+details.settings { border: 1px solid var(--border); border-radius: 8px; }
+details.settings > summary {
+  list-style: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+  border-radius: 7px; cursor: pointer; font-weight: 500; user-select: none;
+}
+details.settings > summary::-webkit-details-marker { display: none; }
+details.settings > summary:hover { background: var(--bg-hover); }
+details.settings > summary::after {
+  content: ''; margin-left: auto; width: 7px; height: 7px; flex: none;
+  border-right: 2px solid var(--text-dim); border-bottom: 2px solid var(--text-dim);
+  transform: translateX(-2px) rotate(-45deg); transition: transform .15s ease;
+}
+details.settings[open] > summary { border-radius: 7px 7px 0 0; }
+details.settings[open] > summary::after { transform: translateY(-2px) rotate(45deg); }
 .expander-group { display: flex; flex-direction: column; gap: 10px; }
 .expander { align-self: flex-start; }
 .expander::before { content: '+'; display: inline-block; width: 1em; margin-right: 6px; font-weight: 600; color: var(--accent); }
 .expander[aria-expanded="true"]::before { content: '\2212'; }
-.settings-body { border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 14px; }
+.settings-body { border-top: 1px solid var(--border); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 14px; }
 .settings-part { display: flex; flex-direction: column; gap: 8px; }
 .settings-part > h3 { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }
 /* Separates FaceBridge's options (same for every module) from what the module declares. */

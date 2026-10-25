@@ -68,4 +68,5 @@ Behaviour matching `FaceBridge.ModuleHost`:
 - `--parent-pid` is validated but not watched: when OSCFT exits, its end of the connection closes and the module
   stops.
 
-Example: `crates/fb-module-sdk/examples/demo_module.rs` (synthetic blinking eyes and jaw, with a settings form).
+Example: `crates/fb-module-sdk/examples/demo_module.rs` (synthetic blinking eyes, jaw and smile, with a settings form
+using a slider, toggle, dropdown, button and status text).
