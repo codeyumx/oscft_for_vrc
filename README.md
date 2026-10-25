@@ -1,5 +1,7 @@
 # OSCFT for VRC
 
+*Click the video below for a one-minute tour of every tab in the app.*
+
 https://github.com/user-attachments/assets/7158369c-6314-4220-91da-abeecf7ef561
 
 Eye and face tracking bridge for VRChat. Runs unmodified VRCFaceTracking (VRCFT) tracking modules and sends
