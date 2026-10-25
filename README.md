@@ -1,6 +1,6 @@
 # OSCFT for VRC
 
-https://github.com/user-attachments/assets/994d113d-e9d4-4e02-815e-ab87581406c0
+https://github.com/user-attachments/assets/7158369c-6314-4220-91da-abeecf7ef561
 
 Eye and face tracking bridge for VRChat. Runs unmodified VRCFaceTracking (VRCFT) tracking modules and sends
 their data to VRChat over OSC. Modules can additionally show user notifications and expose per-module settings
