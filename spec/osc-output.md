@@ -204,8 +204,16 @@ after VRChat) still resolves the avatar. A new `/avatar/change` for a different 
   - mDNS advertisement of service name `FaceBridge`: `_osc._udp` (UDP receive port) and `_oscjson._tcp` (HTTP port),
     on `127.0.0.1` when `send_addr` is loopback, else on every host address. VRChat finds `/avatar` in the tree and
     starts sending avatar changes (and parameters) to FaceBridge, showing a HUD notice naming "FaceBridge".
-  - mDNS browse for `_oscjson._tcp`; instances named `VRChat-Client-*` are VRChat. VRChat on Windows serves OSCQuery
-    to the local machine only, so loopback is tried first when `send_addr` is loopback.
+  - mDNS browse for `_oscjson._tcp`; instances named `VRChat-Client-*` (VRChat) or `ChilloutVR-GameClient-*`
+    (ChilloutVR, same OSCQuery `/avatar` tree; prefix as in VRCFaceTracking) are treated as the game. VRChat on
+    Windows serves OSCQuery to the local machine only, so loopback is tried first when `send_addr` is loopback.
+  - Other VRCFT receivers pretend to be VRChat (`VRChat-Client-*` + an `/avatar` tree whose `/avatar/change` has a
+    `VALUE`), so they match the same rule: Basis (HVR face tracking), VRC Avatar Viewer, VRCFTnyan (VNyan),
+    VRCFTtoVMCP, vrcft-mapper. They send `/avatar/change` to port 9001 and to services named `VRCFT-*` (VRCFT's own
+    instance prefix; FaceBridge advertises as `FaceBridge`). If 9001 is not ours, the 5 s `/avatar/change` poll still
+    picks the avatar up. Resonite's VRCFTReceiver mod has no OSCQuery: it writes
+    `OSC/vrcft/Avatars/vrc_parameters.json`, sends `/avatar/change vrc_parameters` to 9001 and is resolved through the
+    config-file path.
 - **Send target follows VRChat**: when `send_addr` is exactly the default `127.0.0.1:9000` and VRChat's
   `HOST_INFO.OSC_PORT` is a different port (VRChat picks another one when 9000 is busy), the target port becomes
   VRChat's. Any other configured `send_addr` is never overridden. `OscStatus.send_addr` shows the effective target.

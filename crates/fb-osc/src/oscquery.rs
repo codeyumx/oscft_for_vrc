@@ -239,8 +239,11 @@ pub enum DiscoveryEvent {
     Removed(String),
 }
 
-fn is_vrchat(fullname: &str) -> bool {
-    fullname.to_ascii_lowercase().starts_with("vrchat-client")
+/// OSCQuery instance names of game clients that serve an `/avatar` tree: VRChat (`VRChat-Client-*`) and
+/// ChilloutVR (`ChilloutVR-GameClient-*`, same prefixes VRCFaceTracking accepts).
+fn is_game_client(fullname: &str) -> bool {
+    let name = fullname.to_ascii_lowercase();
+    name.starts_with("vrchat-client") || name.starts_with("chilloutvr-gameclient")
 }
 
 /// mDNS daemon: advertises FaceBridge's OSC receiver and browses for VRChat.
@@ -281,19 +284,19 @@ impl Mdns {
         Ok(())
     }
 
-    /// Drain pending browse events, keeping only VRChat's service.
+    /// Drain pending browse events, keeping only the game client's service (VRChat or ChilloutVR).
     pub fn poll(&self) -> Vec<DiscoveryEvent> {
         let mut out = Vec::new();
         while let Ok(event) = self.browse.try_recv() {
             match event {
-                ServiceEvent::ServiceResolved(info) if is_vrchat(info.get_fullname()) => {
+                ServiceEvent::ServiceResolved(info) if is_game_client(info.get_fullname()) => {
                     out.push(DiscoveryEvent::Found(VrchatService {
                         fullname: info.get_fullname().to_owned(),
                         addrs: info.get_addresses().iter().copied().collect(),
                         port: info.get_port(),
                     }));
                 }
-                ServiceEvent::ServiceRemoved(_, fullname) if is_vrchat(&fullname) => out.push(DiscoveryEvent::Removed(fullname)),
+                ServiceEvent::ServiceRemoved(_, fullname) if is_game_client(&fullname) => out.push(DiscoveryEvent::Removed(fullname)),
                 _ => {}
             }
         }
@@ -374,7 +377,8 @@ mod tests {
         assert_eq!(local, ["127.0.0.1:9999", "192.168.1.5:9999", "[fe80::1]:9999"]);
         let remote: Vec<String> = svc.candidates(false).iter().map(ToString::to_string).collect();
         assert_eq!(remote, ["127.0.0.1:9999", "192.168.1.5:9999", "[fe80::1]:9999"]);
-        assert!(is_vrchat(&svc.fullname));
-        assert!(!is_vrchat("FaceBridge._oscjson._tcp.local."));
+        assert!(is_game_client(&svc.fullname));
+        assert!(is_game_client("ChilloutVR-GameClient-1A2B3C._oscjson._tcp.local."));
+        assert!(!is_game_client("FaceBridge._oscjson._tcp.local."));
     }
 }

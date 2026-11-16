@@ -8,6 +8,10 @@ Eye and face tracking bridge for VRChat. Runs unmodified VRCFaceTracking (VRCFT)
 their data to VRChat over OSC. Modules can additionally show user notifications and expose per-module settings
 through the optional `FaceBridge.Sdk`.
 
+Besides VRChat it works with ChilloutVR (built-in OSC) and with apps that accept VRCFT data the way VRChat does:
+BasisVR (HVR face tracking), VRC Avatar Viewer, VNyan via VRCFTnyan, VRCFTtoVMCP, vrcft-mapper, and Resonite via
+the VRCFTReceiver mod.
+
 Not affiliated with or endorsed by VRChat Inc. FaceBridge is the project's code name: crates, the module SDK, the
 module host, environment variables and the data folder keep that name, so existing installs and modules are unaffected.
 

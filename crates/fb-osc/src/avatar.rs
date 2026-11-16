@@ -270,4 +270,89 @@ mod tests {
         assert_eq!(parse_oscquery_tree(sub), Some(a));
         assert_eq!(parse_oscquery_tree(&serde_json::json!({"FULL_PATH": "/"})), None);
     }
+
+    fn sorted(a: &AvatarParams) -> Vec<(&str, ParamType)> {
+        let mut got: Vec<_> = a.params.iter().map(|p| (p.address.as_str(), p.ty)).collect();
+        got.sort_unstable_by_key(|p| p.0);
+        got
+    }
+
+    /// Basis (HVR face tracking, `OsushiNode.cs`): Newtonsoft writes every unset field as `null`, containers have
+    /// `ACCESS: 0`, and read-only extras sit next to `parameters` under `/avatar`.
+    #[test]
+    fn basis_tree_with_null_fields() {
+        let leaf = |n: &str| {
+            serde_json::json!({ "DESCRIPTION": null, "FULL_PATH": format!("/avatar/parameters/FT/v2/{n}"), "ACCESS": 3,
+                "TYPE": "f", "VALUE": [0.0], "CONTENTS": null })
+        };
+        let container = |path: &str, contents: Json| {
+            serde_json::json!({ "DESCRIPTION": null, "FULL_PATH": path, "ACCESS": 0, "TYPE": null, "VALUE": null, "CONTENTS": contents })
+        };
+        let v2 = container("/avatar/parameters/FT/v2", serde_json::json!({ "JawOpen": leaf("JawOpen"), "EyeY": leaf("EyeY") }));
+        let ft = container("/avatar/parameters/FT", serde_json::json!({ "v2": v2 }));
+        let avatar = container(
+            "/avatar",
+            serde_json::json!({
+                "change": { "DESCRIPTION": "", "FULL_PATH": "/avatar/change", "ACCESS": 3, "TYPE": "s",
+                    "VALUE": ["avtr_00000000-89b1-4313-aa2d-000000000000"], "CONTENTS": null },
+                "name": { "DESCRIPTION": null, "FULL_PATH": "/avatar/name", "ACCESS": 1, "TYPE": "s", "VALUE": ["Basis"], "CONTENTS": null },
+                "avatarfullfacetracking": { "DESCRIPTION": null, "FULL_PATH": "/avatar/avatarfullfacetracking", "ACCESS": 1,
+                    "TYPE": "T", "VALUE": [true], "CONTENTS": null },
+                "parameters": container("/avatar/parameters", serde_json::json!({ "FT": ft })),
+            }),
+        );
+        let root = container("/", serde_json::json!({ "avatar": avatar }));
+        let a = parse_oscquery_tree(&root).unwrap();
+        assert_eq!(a.id, "avtr_00000000-89b1-4313-aa2d-000000000000");
+        assert_eq!(sorted(&a), [("/avatar/parameters/FT/v2/EyeY", ParamType::Float), ("/avatar/parameters/FT/v2/JawOpen", ParamType::Float)]);
+        assert_eq!(crate::params::build_plan(&a.params).len(), 2);
+    }
+
+    /// VRCFTnyan / VRCFTtoVMCP (`OscJsonServer.cs`): flat `parameters` children keyed by bare name whose `FULL_PATH`
+    /// carries the `v2/` segment; `/avatar/change` is read-only.
+    #[test]
+    fn vrcftnyan_flat_tree_uses_full_path() {
+        let tree = serde_json::json!({
+            "FULL_PATH": "/avatar", "ACCESS": 0,
+            "CONTENTS": {
+                "change": { "FULL_PATH": "/avatar/change", "ACCESS": 1, "TYPE": "s", "VALUE": ["avtr_00000000-0000-0000-0000-000000000000"] },
+                "parameters": { "FULL_PATH": "/avatar/parameters", "ACCESS": 0, "CONTENTS": {
+                    "JawOpen": { "FULL_PATH": "/avatar/parameters/v2/JawOpen", "ACCESS": 3, "TYPE": "f", "VALUE": [0.0] },
+                    "MouthSmileLeft": { "FULL_PATH": "/avatar/parameters/v2/MouthSmileLeft", "ACCESS": 3, "TYPE": "f", "VALUE": [0.0] }
+                } }
+            }
+        });
+        let a = parse_oscquery_tree(&tree).unwrap();
+        assert_eq!(a.id, "avtr_00000000-0000-0000-0000-000000000000");
+        assert_eq!(
+            sorted(&a),
+            [("/avatar/parameters/v2/JawOpen", ParamType::Float), ("/avatar/parameters/v2/MouthSmileLeft", ParamType::Float)]
+        );
+        assert_eq!(crate::params::build_plan(&a.params).len(), 2);
+    }
+
+    /// Resonite VRCFTReceiver mod: no OSCQuery; writes `OSC/vrcft/Avatars/vrc_parameters.json` (id = file name,
+    /// not `avtr_*`) and announces `/avatar/change vrc_parameters` on 9001.
+    #[test]
+    fn resonite_vrcftreceiver_config_file() {
+        let root = std::env::temp_dir().join(format!("fb-osc-resonite-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let dir = root.join("vrcft").join("Avatars");
+        fs::create_dir_all(&dir).unwrap();
+        let entry = |n: &str| {
+            format!(
+                r#"{{"name":"FT/v2/{n}","input":{{"address":"/avatar/parameters/FT/v2/{n}","type":"Float"}},"output":{{"address":"/avatar/parameters/FT/v2/{n}","type":"Float"}}}}"#
+            )
+        };
+        let json = format!(r#"{{"id":"vrc_parameters","name":"expressions (UE)","parameters":[{},{}]}}"#, entry("EyeSquintRight"), entry("JawOpen"));
+        fs::write(dir.join("vrc_parameters.json"), json).unwrap();
+        let a = load_config(&root, "vrc_parameters").unwrap().unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(a.name.as_deref(), Some("expressions (UE)"));
+        assert_eq!(
+            sorted(&a),
+            [("/avatar/parameters/FT/v2/EyeSquintRight", ParamType::Float), ("/avatar/parameters/FT/v2/JawOpen", ParamType::Float)]
+        );
+        assert_eq!(crate::params::build_plan(&a.params).len(), 2);
+    }
 }
