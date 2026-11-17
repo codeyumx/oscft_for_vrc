@@ -412,7 +412,19 @@ impl Discovery {
     }
 
     fn fetch_tree(&self) -> Option<AvatarParams> {
-        self.query("/avatar").or_else(|| self.query("/")).and_then(|t| avatar::parse_oscquery_tree(&t))
+        if let Some(a) = self.query("/avatar").or_else(|| self.query("/")).and_then(|t| avatar::parse_oscquery_tree(&t)) {
+            return Some(a);
+        }
+        // VRChat's Content-Length counts UTF-16 chars, not bytes: a non-ASCII avatar name (`/avatar/name`, VRChat
+        // 2026.4.1+) truncates `/avatar` and `/`. The id and parameter nodes alone stay ASCII; the id is read again
+        // afterwards so parameters of an avatar switched to mid-read are never paired with the old id.
+        let change = self.query("/avatar/change")?;
+        let parameters = self.query("/avatar/parameters")?;
+        if self.query("/avatar/change")? != change {
+            return None;
+        }
+        let tree = serde_json::json!({ "FULL_PATH": "/avatar", "CONTENTS": { "change": change, "parameters": parameters } });
+        avatar::parse_oscquery_tree(&tree)
     }
 
     /// If FaceBridge still targets the default address and VRChat reports a different OSC port (it picks a free
@@ -450,7 +462,13 @@ impl Discovery {
         }
         let id = self
             .query("/avatar/change")
-            .and_then(|n| n.get("VALUE").and_then(|v| v.get(0)).and_then(|v| v.as_str().map(str::to_owned)))
+            .and_then(|n| {
+                n.get("VALUE")
+                    .and_then(|v| v.get(0))
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    // VRCFTtoVMCP / VRCFTnyan answer every path with the whole `/avatar` tree.
+                    .or_else(|| avatar::parse_oscquery_tree(&n).map(|a| a.id))
+            })
             .filter(|id| !id.is_empty());
         if let Some(id) = id {
             if self.current_id.as_deref() != Some(&id) {

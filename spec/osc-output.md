@@ -176,8 +176,14 @@ parameters (retrying for ~20 s, because the config file and OSCQuery tree appear
 
 1. **OSCQuery tree** (`AvatarSource::OscQuery`): `GET /avatar` (fallback `/`) on VRChat's OSCQuery HTTP server; the
    avatar id is `/avatar/change` `VALUE[0]` and must match the id announced; parameters are every leaf under
-   `/avatar/parameters` with `TYPE` `f`, `i`, `T`/`F` and (when present) writable `ACCESS` (bit 2). Nested containers
-   (`FT/v2/JawOpen`) are walked; the node's `FULL_PATH` is the address.
+   `/avatar/parameters` with `TYPE` `f`, `i`, `T`/`F` (a leading `,` as in Basis's `",f"` is ignored) and (when
+   present) writable `ACCESS` (bit 2). Nested containers (`FT/v2/JawOpen`) are walked; the node's `FULL_PATH` is the
+   address. When neither parses, `/avatar/change`, `/avatar/parameters` and `/avatar/change` again are read
+   separately and combined if both ids agree: VRChat's `Content-Length` counts UTF-16 chars instead of bytes, so a
+   non-ASCII avatar name (`/avatar/name`, VRChat 2026.4.1+) truncates `/avatar` and `/`.
+   HTTP client: the request goes out in one write (vrcft-mapper parses only its first read); `Content-Length`,
+   chunked and read-to-close bodies are accepted; a UTF-8 BOM before the JSON body is skipped (ChilloutVR sends one
+   on every OSCQuery response).
 2. **Config file** (`AvatarSource::ConfigFile`): `%USERPROFILE%\AppData\LocalLow\VRChat\VRChat\OSC\<usr_...>\Avatars\<avtr_...>.json`
    (override the OSC directory with env `FACEBRIDGE_VRCHAT_OSC_DIR`); the most recently written user directory
    wins. Entries with an `input` block whose address is under `/avatar/parameters/` and type `Int`/`Float`/`Bool`
@@ -186,7 +192,9 @@ parameters (retrying for ~20 s, because the config file and OSCQuery tree appear
 
 When both are unavailable after the retries `last_error` explains it and nothing is sent. While VRChat's OSCQuery
 service is known, `/avatar/change` is also polled every 5 s so a missed change message (FaceBridge started
-after VRChat) still resolves the avatar. A new `/avatar/change` for a different avatar clears the old plan at once.
+after VRChat) still resolves the avatar; a reply that is the whole `/avatar` tree (VRCFTtoVMCP and VRCFTnyan answer
+every path with it) yields the id from its `change` node. A new `/avatar/change` for a different avatar clears the
+old plan at once.
 
 `AvatarInfo.parameter_count` = parameters the avatar declares (config file: all entries; OSCQuery: all leaves);
 `matched_parameter_count` = avatar parameters that receive FaceBridge data.

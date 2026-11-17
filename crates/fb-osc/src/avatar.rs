@@ -106,8 +106,9 @@ pub fn load_config(root: &Path, id: &str) -> std::io::Result<Option<AvatarParams
     parse_config(&text, id).map(Some).map_err(std::io::Error::other)
 }
 
+/// OSCQuery `TYPE` without the OSC message's leading comma; Basis writes runtime-published nodes as `",f"`.
 fn osc_type(tag: &str) -> Option<ParamType> {
-    match tag.chars().next()? {
+    match tag.strip_prefix(',').unwrap_or(tag).chars().next()? {
         'f' => Some(ParamType::Float),
         'i' => Some(ParamType::Int),
         'T' | 'F' => Some(ParamType::Bool),
@@ -288,7 +289,13 @@ mod tests {
         let container = |path: &str, contents: Json| {
             serde_json::json!({ "DESCRIPTION": null, "FULL_PATH": path, "ACCESS": 0, "TYPE": null, "VALUE": null, "CONTENTS": contents })
         };
-        let v2 = container("/avatar/parameters/FT/v2", serde_json::json!({ "JawOpen": leaf("JawOpen"), "EyeY": leaf("EyeY") }));
+        // Runtime-published nodes carry the OSC type tag with its comma.
+        let mut published = leaf("MouthClosed");
+        published["TYPE"] = ",f".into();
+        let v2 = container(
+            "/avatar/parameters/FT/v2",
+            serde_json::json!({ "JawOpen": leaf("JawOpen"), "EyeY": leaf("EyeY"), "MouthClosed": published }),
+        );
         let ft = container("/avatar/parameters/FT", serde_json::json!({ "v2": v2 }));
         let avatar = container(
             "/avatar",
@@ -304,8 +311,15 @@ mod tests {
         let root = container("/", serde_json::json!({ "avatar": avatar }));
         let a = parse_oscquery_tree(&root).unwrap();
         assert_eq!(a.id, "avtr_00000000-89b1-4313-aa2d-000000000000");
-        assert_eq!(sorted(&a), [("/avatar/parameters/FT/v2/EyeY", ParamType::Float), ("/avatar/parameters/FT/v2/JawOpen", ParamType::Float)]);
-        assert_eq!(crate::params::build_plan(&a.params).len(), 2);
+        assert_eq!(
+            sorted(&a),
+            [
+                ("/avatar/parameters/FT/v2/EyeY", ParamType::Float),
+                ("/avatar/parameters/FT/v2/JawOpen", ParamType::Float),
+                ("/avatar/parameters/FT/v2/MouthClosed", ParamType::Float),
+            ]
+        );
+        assert_eq!(crate::params::build_plan(&a.params).len(), 3);
     }
 
     /// VRCFTnyan / VRCFTtoVMCP (`OscJsonServer.cs`): flat `parameters` children keyed by bare name whose `FULL_PATH`

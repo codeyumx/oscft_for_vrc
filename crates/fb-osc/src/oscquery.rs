@@ -196,17 +196,21 @@ fn read_response<R: BufRead>(r: &mut R) -> io::Result<(u16, Vec<u8>)> {
     Ok((status, body))
 }
 
-/// `GET path` on an OSCQuery server and parse the JSON body.
+/// `GET path` on an OSCQuery server and parse the JSON body. A leading UTF-8 BOM is skipped (ChilloutVR's EmbedIO
+/// server starts every body with one).
 pub fn get_json(addr: SocketAddr, path: &str, timeout: Duration) -> io::Result<Json> {
     let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: {addr}\r\nAccept: application/json\r\nConnection: close\r\n\r\n")?;
+    // One write: some servers (vrcft-mapper) parse only what their first `read` returns.
+    let request = format!("GET {path} HTTP/1.1\r\nHost: {addr}\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
+    stream.write_all(request.as_bytes())?;
     let (status, body) = read_response(&mut BufReader::new(stream))?;
     if status != 200 {
         return Err(io::Error::other(format!("OSCQuery {addr}{path}: HTTP {status}")));
     }
-    serde_json::from_slice(&body).map_err(io::Error::other)
+    let json = body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(&body);
+    serde_json::from_slice(json).map_err(io::Error::other)
 }
 
 // ---- mDNS ----------------------------------------------------------------------------------------------------------
@@ -364,6 +368,29 @@ mod tests {
         assert_eq!(get_json(addr, "/?HOST_INFO", t).unwrap()["OSC_PORT"], 4242);
         assert_eq!(get_json(addr, "/avatar", t).unwrap()["FULL_PATH"], "/avatar");
         assert!(get_json(addr, "/missing", t).is_err());
+    }
+
+    /// ChilloutVR (EmbedIO 3.5): chunked, keep-alive despite `Connection: close`, body starts with a UTF-8 BOM.
+    /// The server, like vrcft-mapper's, parses only its first `read`.
+    #[test]
+    fn get_json_skips_chilloutvr_bom() {
+        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut req = [0u8; 1024];
+            let n = s.read(&mut req).unwrap();
+            assert!(req[..n].starts_with(b"GET /avatar/change HTTP/1.1\r\n") && req[..n].ends_with(b"\r\n\r\n"));
+            let body = "\u{feff}{\"FULL_PATH\":\"/avatar/change\",\"VALUE\":[\"bcd737f7-7101-4a17-809b-ee41b9369e2a\"]}";
+            let head = "HTTP/1.1 200 OK\r\nContent-Type: application/json; charset=utf-8\r\nServer: EmbedIO/3.5.2\r\n\
+                        Transfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n";
+            write!(s, "{head}{:x}\r\n{body}\r\n0\r\n\r\n", body.len()).unwrap();
+            // Keep the connection open like keep-alive does; the client must stop at the last chunk.
+            std::thread::sleep(Duration::from_millis(500));
+        });
+        let node = get_json(addr, "/avatar/change", Duration::from_secs(2)).unwrap();
+        assert_eq!(node["VALUE"][0], "bcd737f7-7101-4a17-809b-ee41b9369e2a");
+        server.join().unwrap();
     }
 
     #[test]
