@@ -107,6 +107,7 @@ pub fn load_config(root: &Path, id: &str) -> std::io::Result<Option<AvatarParams
 }
 
 /// OSCQuery `TYPE` without the OSC message's leading comma; Basis writes runtime-published nodes as `",f"`.
+/// Only the first tag counts. Strings (`s`), vectors and every other tag are not avatar inputs FaceBridge can drive.
 fn osc_type(tag: &str) -> Option<ParamType> {
     match tag.strip_prefix(',').unwrap_or(tag).chars().next()? {
         'f' => Some(ParamType::Float),
@@ -124,9 +125,12 @@ fn walk(node: &Json, path: &str, out: &mut Vec<(String, ParamType)>, total: &mut
         }
         return;
     }
+    // Leaves without a `TYPE` are skipped and not counted: Basis subscription nodes (`ACCESS 2`, no TYPE/VALUE),
+    // and VRChat's tracked bug where a parameter that also has children (`Param` + `Param/Sub`) loses its TYPE.
     let Some(ty) = node.get("TYPE").and_then(Json::as_str) else { return };
     *total += 1;
-    // OSCQuery ACCESS: 1 read, 2 write, 3 both. Absent means writable.
+    // OSCQuery ACCESS: 1 read, 2 write, 3 both. Absent (or not an integer) means writable. Read-only leaves are
+    // the game's built-ins (IsLocal, VelocityX, CVR's MovementX, ...) and are counted but never sent.
     let writable = node.get("ACCESS").and_then(Json::as_u64).is_none_or(|a| a & 2 != 0);
     if let (true, Some(ty)) = (writable, osc_type(ty)) {
         out.push((path.to_owned(), ty));
@@ -134,7 +138,8 @@ fn walk(node: &Json, path: &str, out: &mut Vec<(String, ParamType)>, total: &mut
 }
 
 /// Extract the avatar from VRChat's OSCQuery tree. `tree` is the response for either `/` or `/avatar`.
-/// The id comes from the `/avatar/change` node's `VALUE`.
+/// The id comes from the `/avatar/change` node's `VALUE`. Only `change` and `parameters` are read; other `/avatar`
+/// children are ignored: `name` (VRChat 2026.4.1+, Basis), `avatarfullfacetracking` (Basis), `profile` (ChilloutVR).
 pub fn parse_oscquery_tree(tree: &Json) -> Option<AvatarParams> {
     let avatar = if tree.get("FULL_PATH").and_then(Json::as_str) == Some("/avatar") {
         tree

@@ -494,7 +494,10 @@ fn split_v2(name: &str) -> Option<(&str, &str)> {
 }
 
 /// Build the send plan for an avatar: float parameters, binary bit/sign parameters and tracking-active flags
-/// found among `params`. Unmatched parameters are ignored. Addresses keep VRChat's exact spelling.
+/// found among `params`. Addresses keep VRChat's exact spelling. Ignored: addresses outside `/avatar/parameters/`,
+/// duplicates, names not directly under a `v2` segment (legacy v1 names such as CVR avatars' `LeftEyeX`, `EyesY`),
+/// names missing from the catalog, every `Int` parameter, and bools that are neither `<Name><2^n>` bits nor
+/// `<Name>Negative`. The active flags are the exception: matched by last segment at any prefix.
 pub fn build_plan(params: &[AvatarParam]) -> SendPlan {
     let cat = catalog();
     let mut seen = HashSet::new();
