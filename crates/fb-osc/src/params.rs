@@ -86,6 +86,10 @@ enum Src {
     /// Mean of two shape weights.
     Pair(E, E),
     Custom(fn(&Ctx) -> f32),
+    /// A VRCFT v1 (SRanipal-era) shape.
+    V1(V1),
+    /// `a - b` of v1 shapes (written "b to a" in the v4 docs).
+    V1Diff(V1, V1),
 }
 
 /// One float parameter FaceBridge can send (`<prefix>/v2/<name>`).
@@ -104,6 +108,8 @@ impl ParamDef {
             Src::Pair(a, b) => (c.s(a) + c.s(b)) * 0.5,
             Src::Mean(shapes) => c.mean(shapes),
             Src::Custom(f) => f(c),
+            Src::V1(s) => v1(c, s),
+            Src::V1Diff(a, b) => v1(c, a) - v1(c, b),
         };
         self.range.clamp(v)
     }
@@ -319,6 +325,392 @@ static DERIVED: &[ParamDef] = &[
     def("TongueShape", Signed, Ex, Src::Diff(E::TongueSquish, E::TongueFlat)),
 ];
 
+// ---- VRCFT v1 (legacy) parameters ----------------------------------------------------------------------------
+//
+// Unprefixed names from VRCFT v4 (docs.vrcft.io/docs/v4.0 eye / lip tracking parameters), still found on avatars
+// next to (or instead of) the `v2/` set. Lip shapes are SRanipal's, computed from Unified Expressions with the
+// docs' SRanipal compatibility table (docs.vrcft.io .../compatibility/vive-sranipal). Not available: the four
+// `Tongue*Morph` shapes (no Unified Expressions counterpart).
+
+/// SRanipal-era shapes and the Left/Right or Upper/Lower means the v4 combined parameters refer to.
+#[derive(Clone, Copy)]
+enum V1 {
+    JawRight,
+    JawLeft,
+    JawForward,
+    JawOpen,
+    /// `MouthApeShape` = `MouthClosed`.
+    Ape,
+    MouthUpperRight,
+    MouthUpperLeft,
+    MouthLowerRight,
+    MouthLowerLeft,
+    /// Mean of upper and lower lip translation right / left (`MouthX`).
+    MouthRight,
+    MouthLeft,
+    /// `MouthUpperOverturn` = `LipFunnelUpper`, `MouthLowerOverturn` = `LipFunnelLower`.
+    UpperOverturn,
+    LowerOverturn,
+    Overturn,
+    /// `MouthPout` = `LipPucker`.
+    Pout,
+    SmileRight,
+    SmileLeft,
+    Smile,
+    SadRight,
+    SadLeft,
+    Sad,
+    PuffRight,
+    PuffLeft,
+    Puff,
+    /// `CheekSuck`, both sides.
+    Suck,
+    UpperUpRight,
+    UpperUpLeft,
+    UpperUp,
+    LowerDownRight,
+    LowerDownLeft,
+    LowerDown,
+    /// `MouthUpperInside` = `LipSuckUpper`, `MouthLowerInside` = `LipSuckLower`.
+    UpperInside,
+    LowerInside,
+    Inside,
+    /// `MouthLowerOverlay` = `MouthRaiserLower`.
+    LowerOverlay,
+    /// `TongueLongStep1` covers `TongueOut` 0..0.5, `TongueLongStep2` 0.5..1.
+    TongueStep1,
+    TongueStep2,
+    TongueUp,
+    TongueDown,
+    TongueRight,
+    TongueLeft,
+    TongueRoll,
+}
+
+fn v1(c: &Ctx, s: V1) -> f32 {
+    let half = |a: V1, b: V1| (v1(c, a) + v1(c, b)) * 0.5;
+    match s {
+        V1::JawRight => c.s(E::JawRight),
+        V1::JawLeft => c.s(E::JawLeft),
+        V1::JawForward => c.s(E::JawForward),
+        V1::JawOpen => c.s(E::JawOpen),
+        V1::Ape => c.s(E::MouthClosed),
+        V1::MouthUpperRight => c.s(E::MouthUpperRight),
+        V1::MouthUpperLeft => c.s(E::MouthUpperLeft),
+        V1::MouthLowerRight => c.s(E::MouthLowerRight),
+        V1::MouthLowerLeft => c.s(E::MouthLowerLeft),
+        V1::MouthRight => half(V1::MouthUpperRight, V1::MouthLowerRight),
+        V1::MouthLeft => half(V1::MouthUpperLeft, V1::MouthLowerLeft),
+        V1::UpperOverturn => c.mean(&[E::LipFunnelUpperRight, E::LipFunnelUpperLeft]),
+        V1::LowerOverturn => c.mean(&[E::LipFunnelLowerRight, E::LipFunnelLowerLeft]),
+        V1::Overturn => half(V1::UpperOverturn, V1::LowerOverturn),
+        V1::Pout => c.mean(&[E::LipPuckerUpperRight, E::LipPuckerUpperLeft, E::LipPuckerLowerRight, E::LipPuckerLowerLeft]),
+        V1::SmileRight => smile_r(c),
+        V1::SmileLeft => smile_l(c),
+        V1::Smile => half(V1::SmileRight, V1::SmileLeft),
+        V1::SadRight => sad_r(c),
+        V1::SadLeft => sad_l(c),
+        V1::Sad => half(V1::SadRight, V1::SadLeft),
+        V1::PuffRight => c.s(E::CheekPuffRight),
+        V1::PuffLeft => c.s(E::CheekPuffLeft),
+        V1::Puff => half(V1::PuffRight, V1::PuffLeft),
+        V1::Suck => c.mean(&[E::CheekSuckRight, E::CheekSuckLeft]),
+        V1::UpperUpRight => c.s(E::MouthUpperUpRight),
+        V1::UpperUpLeft => c.s(E::MouthUpperUpLeft),
+        V1::UpperUp => half(V1::UpperUpRight, V1::UpperUpLeft),
+        V1::LowerDownRight => c.s(E::MouthLowerDownRight),
+        V1::LowerDownLeft => c.s(E::MouthLowerDownLeft),
+        V1::LowerDown => half(V1::LowerDownRight, V1::LowerDownLeft),
+        V1::UpperInside => c.mean(&[E::LipSuckUpperRight, E::LipSuckUpperLeft]),
+        V1::LowerInside => c.mean(&[E::LipSuckLowerRight, E::LipSuckLowerLeft]),
+        V1::Inside => half(V1::UpperInside, V1::LowerInside),
+        V1::LowerOverlay => c.s(E::MouthRaiserLower),
+        V1::TongueStep1 => unit(c.s(E::TongueOut) * 2.0),
+        V1::TongueStep2 => unit(c.s(E::TongueOut) * 2.0 - 1.0),
+        V1::TongueUp => c.s(E::TongueUp),
+        V1::TongueDown => c.s(E::TongueDown),
+        V1::TongueRight => c.s(E::TongueRight),
+        V1::TongueLeft => c.s(E::TongueLeft),
+        V1::TongueRoll => c.s(E::TongueRoll),
+    }
+}
+
+/// Expression shape that only counts while expression tracking is claimed (eyelid widen / squeeze in Eye values).
+fn claimed_shape(c: &Ctx, e: E) -> f32 {
+    if c.claims.expression { c.s(e) } else { 0.0 }
+}
+
+/// v4 `EyeLidExpanded`: `0..0.8` openness, `0.8..1` widen. FaceBridge definition: `0.8*open + 0.2*wide`.
+fn v1_lid_expanded(c: &Ctx, eye: &SingleEye, wide: E) -> f32 {
+    0.8 * unit(eye.openness) + 0.2 * claimed_shape(c, wide)
+}
+
+/// v4 `EyeLidExpandedSqueeze`: additionally `-1..0` squeeze. FaceBridge definition: expanded lid minus `EyeSquint`.
+fn v1_lid_squeeze(c: &Ctx, eye: &SingleEye, wide: E, squint: E) -> f32 {
+    v1_lid_expanded(c, eye, wide) - claimed_shape(c, squint)
+}
+
+fn v1_lid_l(c: &Ctx) -> f32 {
+    v1_lid_expanded(c, &c.frame.eye.left, E::EyeWideLeft)
+}
+
+fn v1_lid_r(c: &Ctx) -> f32 {
+    v1_lid_expanded(c, &c.frame.eye.right, E::EyeWideRight)
+}
+
+fn v1_squeeze_l(c: &Ctx) -> f32 {
+    v1_lid_squeeze(c, &c.frame.eye.left, E::EyeWideLeft, E::EyeSquintLeft)
+}
+
+fn v1_squeeze_r(c: &Ctx) -> f32 {
+    v1_lid_squeeze(c, &c.frame.eye.right, E::EyeWideRight, E::EyeSquintRight)
+}
+
+static V1_EYE: &[ParamDef] = &[
+    def("EyesX", Signed, Eye, Src::Custom(|c| (gaze(c.frame.eye.left.gaze_x) + gaze(c.frame.eye.right.gaze_x)) * 0.5)),
+    def("EyesY", Signed, Eye, Src::Custom(|c| (gaze(c.frame.eye.left.gaze_y) + gaze(c.frame.eye.right.gaze_y)) * 0.5)),
+    def("LeftEyeX", Signed, Eye, Src::Custom(|c| gaze(c.frame.eye.left.gaze_x))),
+    def("LeftEyeY", Signed, Eye, Src::Custom(|c| gaze(c.frame.eye.left.gaze_y))),
+    def("RightEyeX", Signed, Eye, Src::Custom(|c| gaze(c.frame.eye.right.gaze_x))),
+    def("RightEyeY", Signed, Eye, Src::Custom(|c| gaze(c.frame.eye.right.gaze_y))),
+    def("LeftEyeLid", Unit, Eye, Src::Custom(|c| unit(c.frame.eye.left.openness))),
+    def("RightEyeLid", Unit, Eye, Src::Custom(|c| unit(c.frame.eye.right.openness))),
+    def("CombinedEyeLid", Unit, Eye, Src::Custom(|c| (unit(c.frame.eye.left.openness) + unit(c.frame.eye.right.openness)) * 0.5)),
+    def("EyesDilation", Unit, Eye, Src::Custom(pupil_dilation)),
+    def(
+        "EyesPupilDiameter",
+        Unit,
+        Eye,
+        Src::Custom(|c| pupil_cm((c.frame.eye.left.pupil_diameter_mm + c.frame.eye.right.pupil_diameter_mm) * 0.5)),
+    ),
+    def("LeftEyeLidExpanded", Unit, Eye, Src::Custom(v1_lid_l)),
+    def("RightEyeLidExpanded", Unit, Eye, Src::Custom(v1_lid_r)),
+    def("CombinedEyeLidExpanded", Unit, Eye, Src::Custom(|c| (v1_lid_l(c) + v1_lid_r(c)) * 0.5)),
+    def("LeftEyeLidExpandedSqueeze", Signed, Eye, Src::Custom(v1_squeeze_l)),
+    def("RightEyeLidExpandedSqueeze", Signed, Eye, Src::Custom(v1_squeeze_r)),
+    def("CombinedEyeLidExpandedSqueeze", Signed, Eye, Src::Custom(|c| (v1_squeeze_l(c) + v1_squeeze_r(c)) * 0.5)),
+    // Current VRCFT also accepts these spellings of the combined lid / widen names.
+    def("EyeLidExpanded", Unit, Eye, Src::Custom(|c| (v1_lid_l(c) + v1_lid_r(c)) * 0.5)),
+    def("EyeLidExpandedSqueeze", Signed, Eye, Src::Custom(|c| (v1_squeeze_l(c) + v1_squeeze_r(c)) * 0.5)),
+    def("EyesWiden", Unit, Ex, Src::Mean(&[E::EyeWideRight, E::EyeWideLeft])),
+    def("EyeWiden", Unit, Ex, Src::Mean(&[E::EyeWideRight, E::EyeWideLeft])),
+    def("LeftEyeWiden", Unit, Ex, Src::Shape(E::EyeWideLeft)),
+    def("RightEyeWiden", Unit, Ex, Src::Shape(E::EyeWideRight)),
+    def("EyesSqueeze", Unit, Ex, Src::Mean(&[E::EyeSquintRight, E::EyeSquintLeft])),
+    def("LeftEyeSqueeze", Unit, Ex, Src::Shape(E::EyeSquintLeft)),
+    def("RightEyeSqueeze", Unit, Ex, Src::Shape(E::EyeSquintRight)),
+];
+
+/// Other unprefixed names: `TongueSteps` (v4 docs: `-1` tongue in .. `1` fully out) and the names current VRCFT
+/// sends beyond the v4 docs, valued like the v2 parameter of the same name; `Brows*` / `Cheeks*` / `Eyes*` are
+/// the means of their two sides.
+static V1_EXTRA: &[ParamDef] = &[
+    def("TongueSteps", Signed, Ex, Src::Custom(|c| c.s(E::TongueOut) * 2.0 - 1.0)),
+    def("EyeSquintRight", Unit, Ex, Src::Shape(E::EyeSquintRight)),
+    def("EyeSquintLeft", Unit, Ex, Src::Shape(E::EyeSquintLeft)),
+    def("EyesSquint", Unit, Ex, Src::Mean(&[E::EyeSquintRight, E::EyeSquintLeft])),
+    def("BrowDownRight", Unit, Ex, Src::Custom(brow_down_r)),
+    def("BrowDownLeft", Unit, Ex, Src::Custom(brow_down_l)),
+    def("BrowsDown", Unit, Ex, Src::Custom(|c| (brow_down_r(c) + brow_down_l(c)) * 0.5)),
+    def("BrowInnerUpRight", Unit, Ex, Src::Shape(E::BrowInnerUpRight)),
+    def("BrowInnerUpLeft", Unit, Ex, Src::Shape(E::BrowInnerUpLeft)),
+    def("BrowsInnerUp", Unit, Ex, Src::Mean(&[E::BrowInnerUpRight, E::BrowInnerUpLeft])),
+    def("BrowOuterUpRight", Unit, Ex, Src::Shape(E::BrowOuterUpRight)),
+    def("BrowOuterUpLeft", Unit, Ex, Src::Shape(E::BrowOuterUpLeft)),
+    def("BrowsOuterUp", Unit, Ex, Src::Mean(&[E::BrowOuterUpRight, E::BrowOuterUpLeft])),
+    def("CheekSquintRight", Unit, Ex, Src::Shape(E::CheekSquintRight)),
+    def("CheekSquintLeft", Unit, Ex, Src::Shape(E::CheekSquintLeft)),
+    def("CheeksSquint", Unit, Ex, Src::Mean(&[E::CheekSquintRight, E::CheekSquintLeft])),
+    def("MouthDimpleRight", Unit, Ex, Src::Shape(E::MouthDimpleRight)),
+    def("MouthDimpleLeft", Unit, Ex, Src::Shape(E::MouthDimpleLeft)),
+    def("MouthDimple", Unit, Ex, Src::Mean(&[E::MouthDimpleRight, E::MouthDimpleLeft])),
+    def("MouthPressRight", Unit, Ex, Src::Shape(E::MouthPressRight)),
+    def("MouthPressLeft", Unit, Ex, Src::Shape(E::MouthPressLeft)),
+    def("MouthPress", Unit, Ex, Src::Mean(&[E::MouthPressRight, E::MouthPressLeft])),
+    def("MouthRaiserUpper", Unit, Ex, Src::Shape(E::MouthRaiserUpper)),
+    def("MouthRaiserLower", Unit, Ex, Src::Shape(E::MouthRaiserLower)),
+    def("MouthStretchRight", Unit, Ex, Src::Shape(E::MouthStretchRight)),
+    def("MouthStretchLeft", Unit, Ex, Src::Shape(E::MouthStretchLeft)),
+    def("MouthStretch", Unit, Ex, Src::Mean(&[E::MouthStretchRight, E::MouthStretchLeft])),
+    def("MouthTightenerRight", Unit, Ex, Src::Shape(E::MouthTightenerRight)),
+    def("MouthTightenerLeft", Unit, Ex, Src::Shape(E::MouthTightenerLeft)),
+    def("MouthTightener", Unit, Ex, Src::Mean(&[E::MouthTightenerRight, E::MouthTightenerLeft])),
+    def("NoseSneerRight", Unit, Ex, Src::Shape(E::NoseSneerRight)),
+    def("NoseSneerLeft", Unit, Ex, Src::Shape(E::NoseSneerLeft)),
+    def("NoseSneer", Unit, Ex, Src::Mean(&[E::NoseSneerRight, E::NoseSneerLeft])),
+];
+
+/// v4 lip parameters, `0..1`.
+const V1_LIP: [(&str, V1); 33] = [
+    ("JawRight", V1::JawRight),
+    ("JawLeft", V1::JawLeft),
+    ("JawForward", V1::JawForward),
+    ("JawOpen", V1::JawOpen),
+    ("MouthApeShape", V1::Ape),
+    ("MouthUpperRight", V1::MouthUpperRight),
+    ("MouthUpperLeft", V1::MouthUpperLeft),
+    ("MouthLowerRight", V1::MouthLowerRight),
+    ("MouthLowerLeft", V1::MouthLowerLeft),
+    ("MouthUpperOverturn", V1::UpperOverturn),
+    ("MouthLowerOverturn", V1::LowerOverturn),
+    ("MouthPout", V1::Pout),
+    ("MouthSmileRight", V1::SmileRight),
+    ("MouthSmileLeft", V1::SmileLeft),
+    ("MouthSadRight", V1::SadRight),
+    ("MouthSadLeft", V1::SadLeft),
+    ("CheekPuffRight", V1::PuffRight),
+    ("CheekPuffLeft", V1::PuffLeft),
+    ("CheekSuck", V1::Suck),
+    ("MouthUpperUpRight", V1::UpperUpRight),
+    ("MouthUpperUpLeft", V1::UpperUpLeft),
+    ("MouthLowerDownRight", V1::LowerDownRight),
+    ("MouthLowerDownLeft", V1::LowerDownLeft),
+    ("MouthUpperInside", V1::UpperInside),
+    ("MouthLowerInside", V1::LowerInside),
+    ("MouthLowerOverlay", V1::LowerOverlay),
+    ("TongueLongStep1", V1::TongueStep1),
+    ("TongueLongStep2", V1::TongueStep2),
+    ("TongueDown", V1::TongueDown),
+    ("TongueUp", V1::TongueUp),
+    ("TongueRight", V1::TongueRight),
+    ("TongueLeft", V1::TongueLeft),
+    ("TongueRoll", V1::TongueRoll),
+];
+
+/// v4 general combined lip parameters, `-1..1`: `(name, +1 shape, -1 shape)`.
+const V1_COMBINED: [(&str, V1, V1); 14] = [
+    ("JawX", V1::JawRight, V1::JawLeft),
+    ("MouthUpper", V1::MouthUpperRight, V1::MouthUpperLeft),
+    ("MouthLower", V1::MouthLowerRight, V1::MouthLowerLeft),
+    ("MouthX", V1::MouthRight, V1::MouthLeft),
+    ("MouthUpperInsideOverturn", V1::UpperInside, V1::UpperOverturn),
+    ("MouthLowerInsideOverturn", V1::LowerInside, V1::LowerOverturn),
+    ("SmileSadRight", V1::SmileRight, V1::SadRight),
+    ("SmileSadLeft", V1::SmileLeft, V1::SadLeft),
+    ("SmileSad", V1::Smile, V1::Sad),
+    ("TongueY", V1::TongueUp, V1::TongueDown),
+    ("TongueX", V1::TongueRight, V1::TongueLeft),
+    ("PuffSuckRight", V1::PuffRight, V1::Suck),
+    ("PuffSuckLeft", V1::PuffLeft, V1::Suck),
+    ("PuffSuck", V1::Puff, V1::Suck),
+];
+
+/// `(suffix, -1 shape)` rows of one combined group.
+type V1Rows = &'static [(&'static str, V1)];
+
+/// v4 combined groups, `-1..1`: parameter `<prefix><suffix>` = `positive - negative`.
+const V1_GROUPS: [(&str, V1, V1Rows); 13] = {
+    const UP_R: &[(&str, V1)] = &[
+        ("UpperInside", V1::UpperInside),
+        ("PuffRight", V1::PuffRight),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const UP_L: &[(&str, V1)] = &[
+        ("UpperInside", V1::UpperInside),
+        ("PuffLeft", V1::PuffLeft),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const UP: &[(&str, V1)] = &[
+        ("UpperInside", V1::UpperInside),
+        ("Inside", V1::Inside),
+        ("Puff", V1::Puff),
+        ("PuffLeft", V1::PuffLeft),
+        ("PuffRight", V1::PuffRight),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const DOWN_R: &[(&str, V1)] = &[
+        ("LowerInside", V1::LowerInside),
+        ("PuffRight", V1::PuffRight),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const DOWN_L: &[(&str, V1)] = &[
+        ("LowerInside", V1::LowerInside),
+        ("PuffLeft", V1::PuffLeft),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const DOWN: &[(&str, V1)] = &[
+        ("LowerInside", V1::LowerInside),
+        ("Inside", V1::Inside),
+        ("Puff", V1::Puff),
+        ("PuffLeft", V1::PuffLeft),
+        ("PuffRight", V1::PuffRight),
+        ("Ape", V1::Ape),
+        ("Pout", V1::Pout),
+        ("Overlay", V1::LowerOverlay),
+        ("Suck", V1::Suck),
+    ];
+    const SMILE_SIDE: &[(&str, V1)] = &[
+        ("UpperOverturn", V1::UpperOverturn),
+        ("LowerOverturn", V1::LowerOverturn),
+        ("Overturn", V1::Overturn),
+        ("Ape", V1::Ape),
+        ("Overlay", V1::LowerOverlay),
+        ("Pout", V1::Pout),
+    ];
+    const OVERTURN: &[(&str, V1)] =
+        &[("UpperOverturn", V1::UpperOverturn), ("LowerOverturn", V1::LowerOverturn), ("Overturn", V1::Overturn)];
+    const JAW_OPEN: &[(&str, V1)] = &[
+        ("Ape", V1::Ape),
+        ("Puff", V1::Puff),
+        ("PuffRight", V1::PuffRight),
+        ("PuffLeft", V1::PuffLeft),
+        ("Suck", V1::Suck),
+        ("Forward", V1::JawForward),
+        ("Overlay", V1::LowerOverlay),
+    ];
+    [
+        ("JawOpen", V1::JawOpen, JAW_OPEN),
+        ("MouthUpperUpRight", V1::UpperUpRight, UP_R),
+        ("MouthUpperUpLeft", V1::UpperUpLeft, UP_L),
+        ("MouthUpperUp", V1::UpperUp, UP),
+        ("MouthLowerDownRight", V1::LowerDownRight, DOWN_R),
+        ("MouthLowerDownLeft", V1::LowerDownLeft, DOWN_L),
+        ("MouthLowerDown", V1::LowerDown, DOWN),
+        ("SmileRight", V1::SmileRight, SMILE_SIDE),
+        ("SmileLeft", V1::SmileLeft, SMILE_SIDE),
+        // `SmileOverturn` is missing from the v4 docs' Smile table but sent by current VRCFT.
+        ("Smile", V1::Smile, SMILE_SIDE),
+        // The docs name CheekPuffLeft for the combined rows too; read as both cheeks.
+        ("PuffRight", V1::PuffRight, OVERTURN),
+        ("PuffLeft", V1::PuffLeft, OVERTURN),
+        ("Puff", V1::Puff, OVERTURN),
+    ]
+};
+
+/// v1 names that are float-only or whose binary form is a different setup (`EyeLidExpanded*` binaries switch
+/// between blink / widen / squeeze with `*Toggle` parameters): their bool variants are not sent.
+const V1_FLOAT_ONLY: [&str; 14] = [
+    "EyesX",
+    "EyesY",
+    "LeftEyeX",
+    "LeftEyeY",
+    "RightEyeX",
+    "RightEyeY",
+    "LeftEyeLidExpanded",
+    "RightEyeLidExpanded",
+    "CombinedEyeLidExpanded",
+    "LeftEyeLidExpandedSqueeze",
+    "EyeLidExpanded",
+    "EyeLidExpandedSqueeze",
+    "RightEyeLidExpandedSqueeze",
+    "CombinedEyeLidExpandedSqueeze",
+];
+
 /// `<X>Right`/`<X>Left` shape pairs that are axes (signed `JawX`, `MouthUpperX`, `MouthLowerX`) rather than
 /// left/right halves of one expression: no combined `<X>` parameter.
 const NOT_COMBINED: [&str; 3] = ["Jaw", "MouthUpper", "MouthLower"];
@@ -327,8 +719,10 @@ const NOT_COMBINED: [&str; 3] = ["Jaw", "MouthUpper", "MouthLower"];
 const FLOAT_ALIASES: [(&str, &str); 2] = [("JawClench1", "JawClench"), ("JawMandibleRaise1", "JawMandibleRaise")];
 
 pub struct Catalog {
+    /// v2 parameters, then the v1 ones.
     defs: Vec<ParamDef>,
     by_name: HashMap<String, usize>,
+    v1_by_name: HashMap<String, usize>,
 }
 
 impl Catalog {
@@ -342,6 +736,11 @@ impl Catalog {
 
     fn lookup_float(&self, name: &str) -> Option<usize> {
         self.lookup(name).or_else(|| FLOAT_ALIASES.iter().find(|(a, _)| *a == name).and_then(|(_, base)| self.lookup(base)))
+    }
+
+    /// An unprefixed VRCFT v1 name.
+    fn lookup_v1(&self, name: &str) -> Option<usize> {
+        self.v1_by_name.get(name).copied()
     }
 }
 
@@ -358,7 +757,19 @@ static CATALOG: LazyLock<Catalog> = LazyLock::new(|| {
         defs.push(ParamDef { name: Cow::Owned(base.to_owned()), range: Unit, group: Ex, src: Src::Pair(right, left) });
     }
     let by_name = defs.iter().enumerate().map(|(i, d)| (d.name.to_string(), i)).collect();
-    Catalog { defs, by_name }
+    let v2_len = defs.len();
+    defs.extend(
+        V1_EYE.iter().chain(V1_EXTRA).map(|d| ParamDef { name: d.name.clone(), range: d.range, group: d.group, src: d.src }),
+    );
+    defs.extend(V1_LIP.iter().map(|&(name, s)| def(name, Unit, Ex, Src::V1(s))));
+    defs.extend(V1_COMBINED.iter().map(|&(name, pos, neg)| def(name, Signed, Ex, Src::V1Diff(pos, neg))));
+    for (prefix, pos, rows) in V1_GROUPS {
+        for &(suffix, neg) in rows {
+            defs.push(ParamDef { name: Cow::Owned(format!("{prefix}{suffix}")), range: Signed, group: Ex, src: Src::V1Diff(pos, neg) });
+        }
+    }
+    let v1_by_name = defs.iter().enumerate().skip(v2_len).map(|(i, d)| (d.name.to_string(), i)).collect();
+    Catalog { defs, by_name, v1_by_name }
 });
 
 pub fn catalog() -> &'static Catalog {
@@ -494,10 +905,11 @@ fn split_v2(name: &str) -> Option<(&str, &str)> {
 }
 
 /// Build the send plan for an avatar: float parameters, binary bit/sign parameters and tracking-active flags
-/// found among `params`. Addresses keep VRChat's exact spelling. Ignored: addresses outside `/avatar/parameters/`,
-/// duplicates, names not directly under a `v2` segment (legacy v1 names such as CVR avatars' `LeftEyeX`, `EyesY`),
-/// names missing from the catalog, every `Int` parameter, and bools that are neither `<Name><2^n>` bits nor
-/// `<Name>Negative`. The active flags are the exception: matched by last segment at any prefix.
+/// found among `params`. Addresses keep VRChat's exact spelling. Names are either directly under a `v2` segment
+/// (`FT/v2/JawOpen`) or unprefixed VRCFT v1 names (`LeftEyeX`, `JawOpen`); the active flags are matched by last
+/// segment at any prefix. Ignored: addresses outside `/avatar/parameters/`, duplicates, other prefixed names, names
+/// missing from the catalog, every `Int` parameter, bools that are neither `<Name><2^n>` bits nor `<Name>Negative`,
+/// and bools of the v1 names in [`V1_FLOAT_ONLY`].
 pub fn build_plan(params: &[AvatarParam]) -> SendPlan {
     let cat = catalog();
     let mut seen = HashSet::new();
@@ -532,10 +944,14 @@ pub fn build_plan(params: &[AvatarParam]) -> SendPlan {
             });
             continue;
         }
-        let Some((prefix, pname)) = split_v2(name) else { continue };
+        let (prefix, pname, v1) = match split_v2(name) {
+            Some((prefix, pname)) => (prefix, pname, false),
+            None if !name.contains('/') => ("", name, true),
+            None => continue,
+        };
         match p.ty {
             ParamType::Float => {
-                if let Some(def) = cat.lookup_float(pname) {
+                if let Some(def) = if v1 { cat.lookup_v1(pname) } else { cat.lookup_float(pname) } {
                     entries.push(Entry {
                         address: crate::osc::encode_address(&p.address),
                         ty: p.ty,
@@ -548,7 +964,8 @@ pub fn build_plan(params: &[AvatarParam]) -> SendPlan {
             }
             ParamType::Bool => {
                 let Some((base, part)) = split_binary(pname) else { continue };
-                let Some(def) = cat.lookup(base) else { continue };
+                let def = if v1 { cat.lookup_v1(base).filter(|_| !V1_FLOAT_ONLY.contains(&base)) } else { cat.lookup(base) };
+                let Some(def) = def else { continue };
                 match part {
                     Binary::Negative => entries.push(Entry {
                         address: crate::osc::encode_address(&p.address),
@@ -681,7 +1098,10 @@ mod tests {
     #[test]
     fn catalog_is_consistent() {
         let cat = catalog();
-        assert_eq!(cat.defs().len(), cat.by_name.len(), "parameter names must be unique");
+        assert_eq!(cat.defs().len(), cat.by_name.len() + cat.v1_by_name.len(), "parameter names must be unique");
+        // v4 docs: 23 eye, 33 lip (37 minus the four Tongue*Morph), 15 general combined, 75 grouped combined;
+        // current VRCFT: 3 eye spellings, SmileOverturn and 32 extra names
+        assert_eq!(cat.v1_by_name.len(), 23 + 33 + 15 + 75 + 3 + 1 + 32);
         for e in E::ALL {
             assert!(cat.lookup(e.name()).is_some(), "{}", e.name());
         }
@@ -821,7 +1241,8 @@ mod tests {
             p("FT/v2/JawClench4", Bool),
             p("FT/v2/NotAParameter", Float),
             p("FT/v2/TongueOut", Int), // wrong type: ignored
-            p("JawOpen", Float),       // legacy unprefixed: ignored
+            p("JawOpen", Float),       // VRCFT v1 name
+            p("Prefix/JawOpen", Float), // prefixed but not under v2: ignored
             p("EyeTrackingActive", Bool),
             p("Prefix/LipTrackingActive", Bool),
             p("VRCEmote", Int),
@@ -832,9 +1253,70 @@ mod tests {
     #[test]
     fn plan_matches_prefixed_params_and_binary_variants() {
         let plan = build_plan(&fixture_params());
-        // JawOpen, JawX, Negative, 3 bits, EyeLeftX, EyeLidRight, JawClench float alias, JawClench4 bit, 2 active
-        assert_eq!(plan.len(), 12);
-        assert_eq!(plan.slots.len(), 5); // JawOpen, JawX, EyeLeftX, EyeLidRight, JawClench (shared by float and bit)
+        // JawOpen, JawX, Negative, 3 bits, EyeLeftX, EyeLidRight, JawClench float alias, JawClench4 bit, v1 JawOpen,
+        // 2 active
+        assert_eq!(plan.len(), 13);
+        // JawOpen, JawX, EyeLeftX, EyeLidRight, JawClench (shared by float and bit), v1 JawOpen
+        assert_eq!(plan.slots.len(), 6);
+    }
+
+    #[test]
+    fn v1_names_unprefixed() {
+        use ParamType::*;
+        let mut plan = build_plan(&[
+            p("LeftEyeX", Float),
+            p("EyesY", Float),
+            p("LeftEyeLidExpandedSqueeze", Float),
+            p("LeftEyeLidExpandedSqueeze1", Bool), // different binary setup (toggles): not sent
+            p("EyesX1", Bool),                     // float-only: not sent
+            p("EyesDilation", Float),
+            p("MouthApeShape", Float),
+            p("TongueLongStep2", Float),
+            p("SmileSadRight", Float),
+            p("JawOpenApe", Float),
+            p("JawOpenApeNegative", Bool),
+            p("MouthUpperUpRightSuck", Float),
+            p("v1/LeftEyeX", Float),        // v1 names are never prefixed
+            p("MouthUpperUpRightNope", Float), // not a v1 name
+        ]);
+        assert_eq!(plan.len(), 10);
+
+        let mut f = TrackingFrame::default();
+        f.eye.left.gaze_x = 0.5;
+        f.eye.left.gaze_y = 0.2;
+        f.eye.right.gaze_y = 0.4;
+        f.eye.left.openness = 0.5;
+        f.set_shape(E::EyeSquintLeft, 0.6);
+        f.set_shape(E::MouthClosed, 0.7);
+        f.set_shape(E::JawOpen, 0.2);
+        f.set_shape(E::TongueOut, 0.75);
+        f.set_shape(E::MouthCornerPullRight, 1.0);
+        f.set_shape(E::CheekSuckRight, 0.4);
+        f.set_shape(E::CheekSuckLeft, 0.2);
+        f.set_shape(E::MouthUpperUpRight, 0.9);
+        let out = sent(&mut plan, &f, both(), true);
+        let get = |n: &str| out.iter().find(|(a, _)| a == &format!("{PARAMETER_PREFIX}{n}")).map(|(_, v)| *v);
+        let float = |n: &str| match get(n) {
+            Some(Value::Float(v)) => v,
+            other => panic!("{n}: {other:?}"),
+        };
+        let close = |n: &str, want: f32| assert!((float(n) - want).abs() < 1e-6, "{n}: {} != {want}", float(n));
+        close("LeftEyeX", 0.5);
+        close("EyesY", 0.3);
+        close("LeftEyeLidExpandedSqueeze", 0.8 * 0.5 - 0.6);
+        close("MouthApeShape", 0.7);
+        close("TongueLongStep2", 0.5);
+        close("SmileSadRight", 0.5); // smile = mean(CornerPull, CornerSlant), no sad
+        close("JawOpenApe", 0.2 - 0.7);
+        close("MouthUpperUpRightSuck", 0.9 - 0.3);
+        assert_eq!(get("JawOpenApeNegative"), Some(Value::Bool(true)));
+        assert_eq!(get("LeftEyeLidExpandedSqueeze1"), None);
+
+        // Expression parts of eye values need the expression claim: squeeze drops out without it.
+        let eye_only = sent(&mut plan, &f, Claims { eye: true, expression: false }, true);
+        let squeeze = eye_only.iter().find(|(a, _)| a.ends_with("/LeftEyeLidExpandedSqueeze")).map(|(_, v)| *v);
+        assert_eq!(squeeze, Some(Value::Float(0.4)));
+        assert!(!eye_only.iter().any(|(a, _)| a.ends_with("/MouthApeShape")));
     }
 
     #[test]

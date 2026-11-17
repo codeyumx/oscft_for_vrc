@@ -38,10 +38,31 @@ FaceBridge sends only to parameters the loaded avatar has (see "Avatar discovery
    - type **Float** and `X` a name from the tables below: float parameter;
    - type **Bool** and `X` = `<Name>Negative` or `<Name><2^k>` (k = 0..15, e.g. `JawOpen1`, `JawOpen2`,
      `JawOpen4`): binary parameter of `<Name>` (see "Binary parameters");
-   - everything else (other types, unknown names, unprefixed legacy v1 names such as `JawOpen`) is ignored.
+   - everything else (other types, unknown names, other prefixes) is ignored.
    Several avatar parameters may map to the same name under different prefixes; each gets the value.
 3. The VRCFT docs spell two float names `JawClench1` and `JawMandibleRaise1`. Those spellings are accepted as
    **float** aliases of `JawClench` / `JawMandibleRaise` (as **bool** they are binary bit 1 of those names).
+4. **VRCFT v1 (legacy) parameters**: unprefixed names (no `/`) from the VRCFT v4 docs (eye and lip tracking
+   parameters, including every combined lip parameter), plus the spellings and extra names current VRCFT sends:
+   `EyeWiden`, `EyeLidExpanded`, `EyeLidExpandedSqueeze`, `SmileOverturn`, and the unprefixed `Brow*`, `Brows*`,
+   `CheekSquint*`, `CheeksSquint`, `EyeSquint*`, `EyesSquint`, `MouthDimple*`, `MouthPress*`, `MouthRaiser*`,
+   `MouthStretch*`, `MouthTightener*`, `NoseSneer*`. Float and binary forms as for v2, except: gaze (`EyesX/Y`,
+   `LeftEye*X/Y`, `RightEye*X/Y`) is float-only and the `*EyeLidExpanded*` binaries (a different setup with
+   `*Toggle` parameters) are not sent. Values:
+   - eyes: gaze as `EyeLeftX` etc. (`EyesX/Y` = mean of both eyes); `*EyeLid` = openness; `EyesDilation` =
+     `PupilDilation`; `EyesPupilDiameter` = `PupilDiameter`; `*Widen` = `EyeWide*`; `*Squeeze` = `EyeSquint*`;
+     `*EyeLidExpanded` = `0.8*openness + 0.2*EyeWide`; `*EyeLidExpandedSqueeze` = that minus `EyeSquint`
+     (`-1..1`); widen/squint parts only while expression is claimed;
+   - lip shapes (SRanipal) from the docs' SRanipal ↔ Unified Expressions table: `MouthApeShape` = `MouthClosed`,
+     `MouthUpper/LowerOverturn` = `LipFunnelUpper/Lower`, `MouthPout` = `LipPucker`, `MouthUpper/LowerInside` =
+     `LipSuckUpper/Lower`, `MouthLowerOverlay` = `MouthRaiserLower`, `MouthSmile*`/`MouthSad*` as the v2
+     parameters, `CheekSuck` = mean of both sides, `TongueLongStep1` = `TongueOut` `0..0.5` scaled to `0..1`,
+     `TongueLongStep2` = `TongueOut` `0.5..1` scaled; other base names are the shape of the same name;
+     `Tongue*Morph` have no Unified Expressions source and are not sent;
+   - combined "A to B" parameters = `B - A` (`-1..1`); "(Left/Right)" is the mean of both sides;
+     `TongueSteps` = `2*TongueOut - 1`;
+   - the extra current-VRCFT names are valued like the v2 parameter of the same name (`Brows*`, `Cheeks*`,
+     `EyesSquint` = mean of both sides).
 
 Duplicate addresses are matched once.
 
