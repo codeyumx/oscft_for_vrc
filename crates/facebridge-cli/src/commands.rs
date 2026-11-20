@@ -228,7 +228,7 @@ mod tests {
             description: None,
             usage: None,
             page_url: None,
-            source_repo: None,
+            update_source: None,
             options: Default::default(),
             enabled: true,
             state: ModuleRunState::Stopped,

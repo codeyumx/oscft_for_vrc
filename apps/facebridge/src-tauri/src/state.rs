@@ -199,7 +199,7 @@ impl Supervisor {
                 }
                 let modules_on = sup.updates.modules_enabled();
                 if modules_on && let Some(engine) = sup.running_engine() {
-                    module_repos = engine.snapshot().modules.into_iter().filter_map(|m| m.source_repo).collect();
+                    module_repos = engine.snapshot().modules.into_iter().filter_map(|m| m.update_source).collect();
                 }
                 // A check that is switched off is left out, which also forgets what it knew.
                 let mut repos = if modules_on { module_repos.clone() } else { BTreeSet::new() };

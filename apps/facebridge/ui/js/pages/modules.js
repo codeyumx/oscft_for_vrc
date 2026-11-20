@@ -260,7 +260,8 @@ function createCard(id) {
       updateBanner.hidden = !update;
       updateText.textContent = update ? `Update available: ${update.latestVersion}${m.version ? ` (installed v${m.version})` : ''}` : '';
       releaseLink.hidden = releaseUrl === null;
-      releaseLink.setAttribute('aria-label', `View the ${m.name} release on ${m.sourceRepo?.forge === 'gitlab' ? 'GitLab' : 'GitHub'}`);
+      const releaseSite = { github: ' on GitHub', gitlab: ' on GitLab' }[m.updateSource?.kind ?? ''] ?? '';
+      releaseLink.setAttribute('aria-label', `View the ${m.name} release${releaseSite}`);
       enabledInput.checked = m.enabled;
       enabledInput.disabled = !engineUp;
       up.disabled = !engineUp || index === 0;

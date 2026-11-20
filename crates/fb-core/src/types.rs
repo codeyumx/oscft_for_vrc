@@ -29,8 +29,9 @@ pub struct ModuleView {
     pub description: Option<String>,
     pub usage: Option<String>,
     pub page_url: Option<String>,
-    /// Where the module's releases are published (from `module.json` `DownloadUrl` / `ModulePageUrl`).
-    pub source_repo: Option<SourceRepo>,
+    /// Where the update check looks for the module's latest version (from `module.json` `UpdateUrl`, else
+    /// `DownloadUrl` / `ModulePageUrl`).
+    pub update_source: Option<UpdateSource>,
     /// Options FaceBridge offers for every module (stored in `config.json`).
     pub options: ModuleOptions,
     pub enabled: bool,
@@ -45,22 +46,29 @@ pub struct ModuleView {
     pub image_count: usize,
 }
 
-/// A repository whose releases the update check asks for. Serializes as `{"forge":"github","path":"owner/repo"}` or
-/// `{"forge":"gitlab","host":"gitlab.com","path":"group/subgroup/project"}`.
+/// Where the update check asks for a module's latest version. Serializes as `{"kind":"github","path":"owner/repo"}`,
+/// `{"kind":"gitlab","host":"gitlab.com","path":"group/subgroup/project"}` or
+/// `{"kind":"json","url":"https://…","field":"moduleVersion","page":"https://…"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
-#[serde(tag = "forge", rename_all = "lowercase")]
-pub enum SourceRepo {
-    /// `owner/repo` on github.com.
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum UpdateSource {
+    /// The latest release of `owner/repo` on github.com.
     Github { path: String },
-    /// A project path (with any subgroups) on gitlab.com or a self-hosted GitLab whose host name starts with `gitlab.`.
+    /// The latest release of a project path (with any subgroups) on gitlab.com or a self-hosted GitLab whose host
+    /// name starts with `gitlab.`.
     Gitlab { host: String, path: String },
+    /// A JSON file in a GitHub repository (`module.json` `UpdateUrl`, fetched from raw.githubusercontent.com): an
+    /// object whose value at `field` (`UpdateVersionField`, default `version`; a dot-separated path into nested
+    /// objects) is a version string. `page` is where the user gets the update.
+    Json { url: String, field: String, page: Option<String> },
 }
 
-impl std::fmt::Display for SourceRepo {
+impl std::fmt::Display for UpdateSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Github { path } => write!(f, "github.com/{path}"),
             Self::Gitlab { host, path } => write!(f, "{host}/{path}"),
+            Self::Json { url, field, .. } => write!(f, "{url} ({field})"),
         }
     }
 }

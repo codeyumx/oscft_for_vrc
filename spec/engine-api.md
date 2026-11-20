@@ -105,8 +105,10 @@ pub struct EngineSnapshot { pub modules: Vec<ModuleView>, pub notifications: Vec
     pub logs: Vec<LogEntry> /* ring buffer, newest last, max 1000 */ }
 pub struct ModuleView { pub id: String, pub name: String, pub version: Option<String>, pub author: Option<String>,
     pub description: Option<String>, pub usage: Option<String>, pub page_url: Option<String>,
-    pub source_repo: Option<SourceRepo> /* from module.json DownloadUrl, else ModulePageUrl: Github { path: "owner/repo" }
-        or Gitlab { host, path: "group/sub/project" } (gitlab.com or a gitlab.* host); JSON {"forge":"github"|"gitlab",...} */,
+    pub update_source: Option<UpdateSource> /* module.json UpdateUrl (a JSON file in a GitHub repository, README
+        "Module authors") as Json { url: raw.githubusercontent.com URL, field: UpdateVersionField or "version", page },
+        else from DownloadUrl, else ModulePageUrl: Github { path: "owner/repo" } or Gitlab { host, path:
+        "group/sub/project" } (gitlab.com or a gitlab.* host); JSON {"kind":"github"|"gitlab"|"json",...} */,
     pub options: ModuleOptions, pub enabled: bool, pub state: ModuleRunState, pub supports: Claims, pub claims: Claims,
     pub status: Option<i8>, pub last_error: Option<String>, pub has_settings: bool,
     pub settings_rev: u64 /* changes when the setting values change (user, module, redeclaration) */, pub image_count: usize }
@@ -122,8 +124,9 @@ pub struct LogEntry { pub time_ms: u64, pub module_id: Option<String>, pub level
 <data_dir>/config.json
 <data_dir>/modules/<id>/            module files as shipped + module.json (VRCFT TrackingModuleMetadata format:
                                     ModuleId, ModuleName, Version, AuthorName, ModuleDescription, UsageInstructions,
-                                    ModulePageUrl, DownloadUrl, DllFileName, ...; native modules: Executable instead of
-                                    DllFileName, spec/native-modules.md); id = ModuleId GUID, or a new UUID for local zips
+                                    ModulePageUrl, DownloadUrl, DllFileName, UpdateUrl, UpdateVersionField, ...;
+                                    native modules: Executable instead of DllFileName, spec/native-modules.md);
+                                    id = ModuleId GUID, or a new UUID for local zips
 <data_dir>/module-data/<id>/        writable data dir passed as --data-dir; settings.json = current values (without `text` fields)
 ```
 

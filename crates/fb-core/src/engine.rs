@@ -451,7 +451,7 @@ impl Engine {
                         description: rt.meta.module_description.clone(),
                         usage: rt.meta.usage_instructions.clone(),
                         page_url: rt.meta.module_page_url.clone(),
-                        source_repo: rt.meta.source_repo(),
+                        update_source: rt.meta.update_source(),
                         options: entry.options,
                         enabled: entry.enabled,
                         state: rt.state,
