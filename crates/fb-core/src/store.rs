@@ -22,7 +22,7 @@ pub struct ProbeHit {
 }
 
 /// Fields of a `module.json` that the engine uses: VRCFT's `TrackingModuleMetadata` plus `Executable`, which marks
-/// a native module (an OSCFT-only program speaking the IPC protocol itself, no .NET host), and `UpdateUrl` /
+/// a native module (an OSCFT-only program speaking the IPC protocol itself, no .NET host), and `UpdateFile` /
 /// `UpdateVersionField`, a custom update check. Lenient: missing or mistyped fields are `None`.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ModuleMeta {
@@ -36,7 +36,7 @@ pub struct ModuleMeta {
     pub download_url: Option<String>,
     pub dll_file_name: Option<String>,
     pub executable: Option<String>,
-    pub update_url: Option<String>,
+    pub update_file: Option<String>,
     pub update_version_field: Option<String>,
 }
 
@@ -54,7 +54,7 @@ impl ModuleMeta {
             download_url: s("DownloadUrl"),
             dll_file_name: s("DllFileName"),
             executable: s("Executable"),
-            update_url: s("UpdateUrl"),
+            update_file: s("UpdateFile"),
             update_version_field: s("UpdateVersionField"),
         }
     }
@@ -67,21 +67,18 @@ impl ModuleMeta {
         Ok(Self::from_value(&v))
     }
 
-    /// Where the update check looks: the JSON file `UpdateUrl` names in a GitHub repository (when `UpdateVersionField`
-    /// is missing or valid), else the repository `DownloadUrl` or else `ModulePageUrl` points at. `None` when there
-    /// is none of these.
+    /// Where the update check looks: the repository `DownloadUrl`, else `ModulePageUrl` points at. On GitHub, a valid
+    /// `UpdateFile` (with a valid or missing `UpdateVersionField`) in that repository replaces its release check.
+    /// `None` when neither URL points at a repository.
     pub fn update_source(&self) -> Option<UpdateSource> {
+        let repo = [&self.download_url, &self.module_page_url].into_iter().flatten().find_map(|u| source_repo_of(u))?;
         let field = self.update_version_field.as_deref().unwrap_or("version");
-        if is_field_path(field)
-            && let Some(url) = self.update_url.as_deref().and_then(update_url_of)
-        {
-            return Some(UpdateSource::Json {
-                url,
-                field: field.to_owned(),
-                page: self.module_page_url.clone().or_else(|| self.download_url.clone()),
-            });
+        match (repo, self.update_file.as_deref()) {
+            (UpdateSource::Github { path }, Some(file)) if is_repo_file(file) && is_field_path(field) => {
+                Some(UpdateSource::Json { repo: path, file: file.to_owned(), field: field.to_owned() })
+            }
+            (repo, _) => Some(repo),
         }
-        [&self.download_url, &self.module_page_url].into_iter().flatten().find_map(|u| source_repo_of(u))
     }
 }
 
@@ -101,28 +98,12 @@ fn is_plain_file_name(name: &str) -> bool {
     !name.contains(['/', '\\']) && name != ".." && name != "."
 }
 
-/// The raw-file URL for `module.json` `UpdateUrl`. Only files in GitHub repositories are accepted, so the update check
-/// never sends requests (and the user's IP address) to a server the module author runs:
-/// `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<file>`, or the file page
-/// `https://github.com/<owner>/<repo>/blob/<ref>/<file>` (also `/raw/`) as copied from the browser, which becomes
-/// the raw link. Query and fragment (`?plain=1`, `#L2`) are dropped.
-fn update_url_of(url: &str) -> Option<String> {
-    let url = url.trim().split(['?', '#']).next().unwrap_or_default();
-    let rest = url.strip_prefix("https://").or_else(|| url.strip_prefix("http://"))?;
-    let (host, path) = rest.split_once('/')?;
-    let segments: Vec<&str> = path.split('/').collect();
-    let (owner, repo, file) = match (host.to_ascii_lowercase().as_str(), segments.as_slice()) {
-        ("raw.githubusercontent.com", [owner, repo, file @ ..]) => (*owner, *repo, file),
-        ("github.com" | "www.github.com", [owner, repo, "blob" | "raw", file @ ..]) => (*owner, *repo, file),
-        _ => return None,
-    };
-    let name = |s: &str| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-    let segment = |s: &&str| !s.is_empty() && *s != "." && *s != ".." && !s.chars().any(|c| c.is_whitespace() || c.is_control());
-    // `file` is the ref (branch, tag or commit) followed by the file's path.
-    if !name(owner) || !name(repo) || file.len() < 2 || !file.iter().all(segment) {
-        return None;
-    }
-    Some(format!("https://raw.githubusercontent.com/{owner}/{repo}/{}", file.join("/")))
+/// A `module.json` `UpdateFile`: a path in the repository (`versions.json`, `release/versions.json`) whose segments
+/// are ASCII letters, digits, `.`, `_` and `-`, never `.` or `..`.
+fn is_repo_file(file: &str) -> bool {
+    file.split('/').all(|s| {
+        !s.is_empty() && s != "." && s != ".." && s.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    })
 }
 
 /// A `module.json` `UpdateVersionField`: dot-separated object keys made of ASCII letters, digits, `_` and `-`
@@ -694,62 +675,29 @@ mod tests {
     }
 
     #[test]
-    fn update_url_overrides_the_repository_and_accepts_only_github_files() {
-        let meta = |update: &str, field: Option<&str>| ModuleMeta {
-            update_url: Some(update.into()),
+    fn update_file_replaces_the_github_release_check() {
+        let meta = |download: &str, file: &str, field: Option<&str>| ModuleMeta {
+            download_url: Some(download.into()),
+            update_file: Some(file.into()),
             update_version_field: field.map(Into::into),
-            download_url: Some("https://github.com/codeyumx/pico/releases/latest/download/m.zip".into()),
             ..Default::default()
         };
-        let json = |url: &str, field: &str| {
-            Some(UpdateSource::Json {
-                url: url.into(),
-                field: field.into(),
-                page: Some("https://github.com/codeyumx/pico/releases/latest/download/m.zip".into()),
-            })
+        let pico = "https://github.com/codeyumx/pico/releases/latest/download/m.zip";
+        let json = |file: &str, field: &str| {
+            Some(UpdateSource::Json { repo: "codeyumx/pico".into(), file: file.into(), field: field.into() })
         };
-        assert_eq!(
-            meta("https://github.com/codeyumx/pico/blob/main/modules/pico/version.json?plain=1#L2", Some("pico.moduleVersion")).update_source(),
-            json("https://raw.githubusercontent.com/codeyumx/pico/main/modules/pico/version.json", "pico.moduleVersion"),
-        );
-        // Branch names with slashes stay part of the path; raw links and `/raw/` pages are kept / converted.
-        for (given, fetched) in [
-            ("https://raw.githubusercontent.com/a/b/main/v.json", "https://raw.githubusercontent.com/a/b/main/v.json"),
-            ("http://www.GitHub.com/a/b/raw/feature/x/v.json", "https://raw.githubusercontent.com/a/b/feature/x/v.json"),
-            ("  https://raw.githubusercontent.com/a/b/0123abc/dir/v.json  ", "https://raw.githubusercontent.com/a/b/0123abc/dir/v.json"),
-        ] {
-            assert_eq!(meta(given, None).update_source(), json(fetched, "version"), "{given}");
+        assert_eq!(meta(pico, "versions.json", Some("nativeModuleVersion")).update_source(), json("versions.json", "nativeModuleVersion"));
+        assert_eq!(meta(pico, "release/v-1_x.json", None).update_source(), json("release/v-1_x.json", "version"));
+        let release_check = Some(UpdateSource::Github { path: "codeyumx/pico".into() });
+        for bad_file in ["/v.json", "a//v.json", "../v.json", "./v.json", "a/", "v.json?x=1", "v json", "https://x/v.json"] {
+            assert_eq!(meta(pico, bad_file, None).update_source(), release_check, "{bad_file:?}");
         }
-        // Anything that is not a file in a GitHub repository: the repository release check applies.
-        for bad in [
-            "https://example.com/v.json",
-            "https://gitlab.com/g/p/-/raw/main/v.json",
-            "https://gist.githubusercontent.com/a/0123/raw/v.json",
-            "https://github.com/a/b",
-            "https://github.com/a/b/tree/main/v.json",
-            "https://github.com/a/b/blob/main",
-            "https://raw.githubusercontent.com/a/b/main",
-            "https://raw.githubusercontent.com/a/b/main/../../c/d/v.json",
-            "https://raw.githubusercontent.com/a/b/main//v.json",
-            "https://raw.githubusercontent.com/a b/c/main/v.json",
-            "ftp://raw.githubusercontent.com/a/b/main/v.json",
-            "version.json",
-        ] {
-            assert_eq!(meta(bad, None).update_source(), Some(UpdateSource::Github { path: "codeyumx/pico".into() }), "{bad}");
-        }
-        // An UpdateVersionField that is not a plain key path makes the whole UpdateUrl unusable.
         for bad_field in ["", ".", "a..b", "a.", "$.version", "a[0]", "module version", "versión"] {
-            assert_eq!(
-                meta("https://raw.githubusercontent.com/a/b/main/v.json", Some(bad_field)).update_source(),
-                Some(UpdateSource::Github { path: "codeyumx/pico".into() }),
-                "{bad_field:?}",
-            );
+            assert_eq!(meta(pico, "v.json", Some(bad_field)).update_source(), release_check, "{bad_field:?}");
         }
-        // The module page is preferred as the place to get the update.
-        let with_page = ModuleMeta {
-            module_page_url: Some("https://example.com/pico".into()),
-            ..meta("https://raw.githubusercontent.com/a/b/main/v.json", None)
-        };
-        assert!(matches!(with_page.update_source(), Some(UpdateSource::Json { page: Some(p), .. }) if p == "https://example.com/pico"));
+        // GitHub only: a GitLab project keeps its release check; no repository means no update check.
+        let gitlab = meta("https://gitlab.com/g/p", "v.json", None);
+        assert_eq!(gitlab.update_source(), Some(UpdateSource::Gitlab { host: "gitlab.com".into(), path: "g/p".into() }));
+        assert_eq!(meta("https://example.com/m.zip", "v.json", None).update_source(), None);
     }
 }

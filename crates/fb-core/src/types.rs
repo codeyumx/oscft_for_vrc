@@ -29,8 +29,8 @@ pub struct ModuleView {
     pub description: Option<String>,
     pub usage: Option<String>,
     pub page_url: Option<String>,
-    /// Where the update check looks for the module's latest version (from `module.json` `UpdateUrl`, else
-    /// `DownloadUrl` / `ModulePageUrl`).
+    /// Where the update check looks for the module's latest version (the repository of `module.json` `DownloadUrl` /
+    /// `ModulePageUrl`, or `UpdateFile` in it).
     pub update_source: Option<UpdateSource>,
     /// Options FaceBridge offers for every module (stored in `config.json`).
     pub options: ModuleOptions,
@@ -48,7 +48,7 @@ pub struct ModuleView {
 
 /// Where the update check asks for a module's latest version. Serializes as `{"kind":"github","path":"owner/repo"}`,
 /// `{"kind":"gitlab","host":"gitlab.com","path":"group/subgroup/project"}` or
-/// `{"kind":"json","url":"https://…","field":"moduleVersion","page":"https://…"}`.
+/// `{"kind":"json","repo":"owner/repo","file":"versions.json","field":"moduleVersion"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum UpdateSource {
@@ -57,10 +57,10 @@ pub enum UpdateSource {
     /// The latest release of a project path (with any subgroups) on gitlab.com or a self-hosted GitLab whose host
     /// name starts with `gitlab.`.
     Gitlab { host: String, path: String },
-    /// A JSON file in a GitHub repository (`module.json` `UpdateUrl`, fetched from raw.githubusercontent.com): an
+    /// `module.json` `UpdateFile` in the GitHub repository `repo` (`owner/repo`), read from the default branch: an
     /// object whose value at `field` (`UpdateVersionField`, default `version`; a dot-separated path into nested
-    /// objects) is a version string. `page` is where the user gets the update.
-    Json { url: String, field: String, page: Option<String> },
+    /// objects) is a version string.
+    Json { repo: String, file: String, field: String },
 }
 
 impl std::fmt::Display for UpdateSource {
@@ -68,7 +68,7 @@ impl std::fmt::Display for UpdateSource {
         match self {
             Self::Github { path } => write!(f, "github.com/{path}"),
             Self::Gitlab { host, path } => write!(f, "{host}/{path}"),
-            Self::Json { url, field, .. } => write!(f, "{url} ({field})"),
+            Self::Json { repo, file, field } => write!(f, "github.com/{repo}/{file} ({field})"),
         }
     }
 }

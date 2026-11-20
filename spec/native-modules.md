@@ -23,7 +23,7 @@ A native module's `module.json` names its program with `Executable` instead of `
 - `Executable` is a plain file name in the module folder (no path separators). On Windows `<name>.exe` is used when
   it exists, so one zip can carry both a Linux `demo_module` and a Windows `demo_module.exe`.
 - Setting both `Executable` and `DllFileName` is an install error.
-- All other fields (`ModuleId`, `ModuleName`, `Version`, `DownloadUrl`, `UpdateUrl`, ...) mean the same as for .NET
+- All other fields (`ModuleId`, `ModuleName`, `Version`, `DownloadUrl`, `UpdateFile`, ...) mean the same as for .NET
   modules, including the update check. When `ModuleName` is missing, the executable's file stem is used.
 - Install never runs `FaceBridge.ModuleHost --probe` for a native module. On Linux and macOS the executable is
   marked executable (zips do not keep the permission bit).

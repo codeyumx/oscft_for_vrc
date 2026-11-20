@@ -15,7 +15,7 @@
  * @property {string|null} description
  * @property {string|null} usage
  * @property {string|null} pageUrl
- * @property {{kind: 'github', path: string} | {kind: 'gitlab', host: string, path: string} | {kind: 'json', url: string, field: string, page: string|null} | null} updateSource  where the update check looks for the latest version (a GitHub/GitLab release, or a JSON file in a GitHub repository)
+ * @property {{kind: 'github', path: string} | {kind: 'gitlab', host: string, path: string} | {kind: 'json', repo: string, file: string, field: string} | null} updateSource  where the update check looks for the latest version (a GitHub/GitLab release, or a JSON file in the GitHub repository)
  * @property {ModuleOptions} options  options FaceBridge offers for every module
  * @property {boolean} enabled
  * @property {ModuleRunState} state
@@ -111,7 +111,7 @@
  * @typedef {object} ModuleUpdate
  * @property {string} moduleId
  * @property {string} latestVersion  release tag as published (e.g. "v0.7.0"), or the version from the module's update JSON
- * @property {string} releaseUrl  release page, or the module's page / download link for an update JSON ("" when none)
+ * @property {string} releaseUrl  the release page (for an update JSON, the latest release of the file's repository)
  */
 
 /**

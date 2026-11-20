@@ -119,11 +119,11 @@ App update check (Settings page, on by default, stored in `app-settings.json` in
 the top left when it is newer than the running build; clicking it opens the release page.
 
 Module update check (Settings page, on by default, stored in `app-settings.json` in the data folder, independent of
-the app update check): for each module whose `module.json` `UpdateUrl` names a JSON file in a GitHub repository, or
-whose `DownloadUrl` or `ModulePageUrl` points at a GitHub repository or a GitLab project (gitlab.com, or a
-self-hosted GitLab whose host name starts with `gitlab.`), the app asks for the latest version at startup, after
-installs and every 6 hours, and shows "Update available" on the module's card when it is a higher version than the
-module's `Version`. The check only contacts GitHub and those GitLab hosts, never a server a module author runs.
+the app update check): for each module whose `module.json` `DownloadUrl` or `ModulePageUrl` points at a GitHub
+repository or a GitLab project (gitlab.com, or a self-hosted GitLab whose host name starts with `gitlab.`), the app
+asks for the latest release (or, with `UpdateFile`, the version in that file of the GitHub repository) at startup,
+after installs and every 6 hours, and shows "Update available" on the module's card when it is a higher version than
+the module's `Version`. The check only contacts GitHub and those GitLab hosts, never a server a module author runs.
 
 ## Tests
 
@@ -227,15 +227,15 @@ To get update notices, publish GitHub or GitLab releases tagged with the version
 `DownloadUrl` or `ModulePageUrl` in `module.json` to the repository (GitLab subgroups work, for example
 `https://gitlab.com/group/subgroup/project`).
 
-Alternatively (for example several modules released from one monorepo), keep the version in a JSON file in a public
-GitHub repository and point `module.json` at it; this replaces the release check:
+Alternatively (for example several modules released from one monorepo), keep the version in a JSON file in that
+GitHub repository and name it with `UpdateFile`; this replaces the release check:
 
 ```json
 {
   "Version": "1.0.0",
-  "UpdateUrl": "https://github.com/me/pico-monorepo/blob/main/versions.json",
-  "UpdateVersionField": "moduleVersion",
-  "ModulePageUrl": "https://github.com/me/pico-monorepo/releases"
+  "DownloadUrl": "https://github.com/me/pico-monorepo/releases/latest/download/pico.zip",
+  "UpdateFile": "versions.json",
+  "UpdateVersionField": "moduleVersion"
 }
 ```
 
@@ -243,15 +243,15 @@ GitHub repository and point `module.json` at it; this replaces the release check
 { "moduleVersion": "1.0.1", "appVersion": "1.0.1" }
 ```
 
-- `UpdateUrl`: `https://raw.githubusercontent.com/<owner>/<repo>/<ref>/<path>` or the file's page
-  `https://github.com/<owner>/<repo>/blob/<ref>/<path>` (query and `#L…` are ignored). Any other host is not
-  accepted, and the release check of `DownloadUrl` / `ModulePageUrl` applies instead.
+- `UpdateFile`: path of the file in the GitHub repository `DownloadUrl` (else `ModulePageUrl`) points at, read from
+  the default branch. Path segments are ASCII letters, digits, `.`, `_` and `-`. Ignored for GitLab projects.
 - `UpdateVersionField` (default `version`): the key holding the version; dots reach into nested objects
-  (`modules.pico.version`). Keys are ASCII letters, digits, `_` and `-`; anything else makes `UpdateUrl` unusable.
+  (`modules.pico.version`). Keys are ASCII letters, digits, `_` and `-`.
+- An invalid `UpdateFile` or `UpdateVersionField` falls back to the release check.
 - The file must be a JSON object of at most 64 KiB, and the value a string of 1 to 4 dot-separated numbers
   (at most 9 digits each, no leading zeros), optionally prefixed with `v`: `"1.0.1"`, `"v2.10"`, `"1.0.0.0"`.
   Anything else (numbers, whitespace, `-beta` suffixes, a missing key) is rejected and reports no update.
-- "View release" opens `ModulePageUrl`, else `DownloadUrl` (https only).
+- "View release" opens the repository's latest release.
 
 ## Module authors: native modules (Rust)
 

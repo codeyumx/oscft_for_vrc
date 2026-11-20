@@ -21,7 +21,7 @@ const RECHECK_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 /// A failed request (offline, rate limited) is retried after this long.
 const RETRY_AFTER: Duration = Duration::from_secs(60 * 60);
 const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
-/// Largest update JSON accepted (`module.json` `UpdateUrl`); it only has to hold a few versions.
+/// Largest update JSON accepted (`module.json` `UpdateFile`); it only has to hold a few versions.
 const MAX_UPDATE_JSON_BYTES: u64 = 64 * 1024;
 
 /// Settings of the desktop app itself (not the engine).
@@ -66,8 +66,7 @@ pub struct ModuleUpdate {
     pub module_id: String,
     /// The release tag as published (e.g. `v0.7.0`), or the version in the module's update JSON.
     pub latest_version: String,
-    /// Where the user gets the update: the release page, or for an update JSON the module's page / download link
-    /// (empty when it has neither).
+    /// Where the user gets the update: the release page (for an update JSON, its repository's latest release).
     pub release_url: String,
 }
 
@@ -219,8 +218,8 @@ fn latest_release(agent: &ureq::Agent, repo: &UpdateSource) -> Result<Option<Rel
     match repo {
         UpdateSource::Github { path } => github_latest_release(agent, path),
         UpdateSource::Gitlab { host, path } => gitlab_latest_release(agent, host, path),
-        UpdateSource::Json { url, field, page } => Ok(json_latest_version(agent, url, field)?
-            .map(|tag| Release { tag, url: page.clone().unwrap_or_default() })),
+        UpdateSource::Json { repo, file, field } => Ok(json_latest_version(agent, repo, file, field)?
+            .map(|tag| Release { tag, url: format!("https://github.com/{repo}/releases/latest") })),
     }
 }
 
@@ -290,12 +289,12 @@ fn gitlab_latest_release(agent: &ureq::Agent, host: &str, path: &str) -> Result<
     }
 }
 
-/// `GET` a module's update JSON (`module.json` `UpdateUrl`) and read the version at `field` from it. 404 means
-/// nothing is published (yet). The file is anyone's input, so it is only used when it matches the specification
-/// exactly (see [`version_in`]); anything else is an error and reports no update.
-fn json_latest_version(agent: &ureq::Agent, url: &str, field: &str) -> Result<Option<String>> {
+/// `GET` a module's update JSON (`module.json` `UpdateFile`, from the repository's default branch) and read the
+/// version at `field` from it. 404 means nothing is published (yet). The file is anyone's input, so it is only used
+/// when it matches the specification exactly (see [`version_in`]); anything else is an error and reports no update.
+fn json_latest_version(agent: &ureq::Agent, repo: &str, file: &str, field: &str) -> Result<Option<String>> {
     let mut response = agent
-        .get(url)
+        .get(&format!("https://raw.githubusercontent.com/{repo}/HEAD/{file}"))
         .header("Accept", "application/json")
         .header("User-Agent", USER_AGENT)
         .call()
@@ -397,11 +396,7 @@ mod tests {
     fn updates_lists_only_modules_behind_their_source_and_nothing_when_off() {
         let github = |path: &str| UpdateSource::Github { path: path.into() };
         let gitlab = |path: &str| UpdateSource::Gitlab { host: "gitlab.com".into(), path: path.into() };
-        let json = |field: &str| UpdateSource::Json {
-            url: "https://raw.githubusercontent.com/a/mono/main/versions.json".into(),
-            field: field.into(),
-            page: None,
-        };
+        let json = |field: &str| UpdateSource::Json { repo: "a/mono".into(), file: "versions.json".into(), field: field.into() };
         let module = |id: &str, version: Option<&str>, repo: Option<UpdateSource>| ModuleView {
             id: id.into(),
             name: id.into(),
